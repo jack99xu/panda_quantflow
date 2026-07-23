@@ -65,6 +65,8 @@ $:
         # 第6步：启动 panda_quantflow 服务
         - name: start-panda-quantflow
           script: |
+            # 修复前端 API 地址（cnb 上用相对路径）
+            find /workspace/src/panda_web -name "*.js" -exec sed -i 's|http://localhost:8000||g' {} +
             . /opt/venv/bin/activate
             cd /workspace
             nohup python src/panda_server/main.py > /tmp/quantflow.log 2>&1 &
