@@ -66,13 +66,20 @@ $:
             fi
             for i in 1 2 3 4 5; do mongosh --quiet --eval "db.runCommand({ping:1})" 2>/dev/null && break; sleep 1; done
             echo "MongoDB 就绪"
-        # 第5步：启动 panda_factor 服务
+        # 第5步：预加载回测行情数据（首次启动自动用 baostock 填充）
+        - name: seed-backtest-data
+          script: |
+            . /opt/venv/bin/activate
+            pip install -q baostock
+            cd /workspace
+            python scripts/seed_backtest_data.py
+        # 第6步：启动 panda_factor 服务
         - name: start-panda-factor
           script: |
             . /opt/venv/bin/activate
             cd /workspace/panda_factor
             nohup python panda_factor_server/panda_factor_server/__main__.py > /tmp/panda_factor.log 2>&1 &
-        # 第6步：启动 panda_quantflow 服务
+        # 第7步：启动 panda_quantflow 服务
         - name: start-panda-quantflow
           script: |
             # 修复前端 API 地址（cnb 上用相对路径）
