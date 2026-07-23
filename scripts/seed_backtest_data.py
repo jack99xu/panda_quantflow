@@ -40,11 +40,19 @@ STOCK_LIST = [
 
 
 def get_symbol(code: str) -> str:
-    """A股 code → symbol（交易所后缀）"""
+    """A股 code → symbol（交易所后缀，项目格式）"""
     if code.startswith("6"):
         return f"{code}.SH"
     else:
         return f"{code}.SZ"
+
+
+def get_baostock_code(code: str) -> str:
+    """A股 code → baostock 格式（带交易所前缀）"""
+    if code.startswith("6"):
+        return f"sh.{code}"
+    else:
+        return f"sz.{code}"
 
 
 def wait_for_mongodb(max_retries=30):
@@ -142,8 +150,9 @@ def main():
         for code, name in STOCK_LIST:
             symbol = get_symbol(code)
             try:
+                bs_code = get_baostock_code(code)
                 rs = bs.query_history_k_data_plus(
-                    code,
+                    bs_code,
                     "date,code,open,high,low,close,preclose,volume,amount",
                     START_DATE, END_DATE,
                     frequency="d",
