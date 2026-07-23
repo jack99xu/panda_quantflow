@@ -10,7 +10,8 @@ $:
         - name: sync-from-github
           script: |
             git remote add github https://github.com/jack99xu/panda_quantflow.git 2>/dev/null || true
-            git pull github main --ff-only 2>/dev/null || echo "已是最新"
+            git fetch github main
+            git reset --hard github/main
         # 第2步：克隆/更新 panda_factor
         - name: setup-panda-factor
           script: |
