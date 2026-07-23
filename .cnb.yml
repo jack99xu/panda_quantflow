@@ -3,7 +3,7 @@ $:
     - docker:
         build: .ide/Dockerfile
         volumes:
-          - mongodb-data:/workspace/mongodb/data:read-write
+          - /data/mongodb:read-write
       services:
         - vscode
         - docker
@@ -35,29 +35,29 @@ $:
         # 第4步：启动 MongoDB（含首次初始化）
         - name: start-mongodb
           script: |
-            mkdir -p /workspace/mongodb/data/db /workspace/mongodb/logs
-            KEYFILE=/workspace/mongodb/conf/mongo.key
-            mkdir -p /workspace/mongodb/conf
+            mkdir -p /data/mongodb/db /data/mongodb/logs
+            KEYFILE=/data/mongodb/conf/mongo.key
+            mkdir -p /data/mongodb/conf
             if [ ! -f "$KEYFILE" ]; then
               (openssl rand -base64 756 > "$KEYFILE" 2>/dev/null) || python3 -c "import os,sys; f=sys.argv[1]; open(f,'w').write(os.urandom(96).hex()); os.chmod(f,0o600)" "$KEYFILE"
             fi
             # 若数据目录为空，尝试从预置压缩包恢复
             DATA_TGZ=/workspace/mongodb_data/mongodb-macos-aarch64-8.0.8.2-20250717.tar.gz
-            if [ ! -f /workspace/mongodb/data/db/storage.bson ] && [ -f "$DATA_TGZ" ]; then
+            if [ ! -f /data/mongodb/db/storage.bson ] && [ -f "$DATA_TGZ" ]; then
               echo "从预置数据恢复 MongoDB..."
-              mkdir -p /workspace/mongodb/tmp_extract
-              tar -xzf "$DATA_TGZ" -C /workspace/mongodb/tmp_extract mongodb/data/db/
-              cp -r /workspace/mongodb/tmp_extract/mongodb/data/db/* /workspace/mongodb/data/db/
-              rm -rf /workspace/mongodb/tmp_extract
+              mkdir -p /data/mongodb/tmp_extract
+              tar -xzf "$DATA_TGZ" -C /data/mongodb/tmp_extract mongodb/data/db/
+              cp -r /data/mongodb/tmp_extract/mongodb/data/db/* /data/mongodb/db/
+              rm -rf /data/mongodb/tmp_extract
               echo "数据恢复完成"
             fi
-            if [ -f /workspace/mongodb/data/db/storage.bson ]; then
+            if [ -f /data/mongodb/db/storage.bson ]; then
               echo "MongoDB 数据已存在，直接启动"
               chmod 600 "$KEYFILE" 2>/dev/null || true
-              mongod --replSet rs0 --dbpath /workspace/mongodb/data/db --keyFile "$KEYFILE" --port 27017 --quiet --fork --logpath /workspace/mongodb/logs/mongod.log
+              mongod --replSet rs0 --dbpath /data/mongodb/db --keyFile "$KEYFILE" --port 27017 --quiet --fork --logpath /data/mongodb/logs/mongod.log
             else
               echo "首次初始化 MongoDB..."
-              mongod --replSet rs0 --dbpath /workspace/mongodb/data/db --port 27017 --quiet --fork --logpath /workspace/mongodb/logs/mongod.log
+              mongod --replSet rs0 --dbpath /data/mongodb/db --port 27017 --quiet --fork --logpath /data/mongodb/logs/mongod.log
               for i in 1 2 3 4 5 6 7 8 9 10; do mongosh --quiet --eval "db.runCommand({ping:1})" 2>/dev/null && break; sleep 1; done
               mongosh --quiet --eval "rs.initiate({_id:'rs0', members:[{_id:0, host:'127.0.0.1:27017'}]})"
               sleep 3
@@ -65,7 +65,7 @@ $:
               mongosh admin --quiet --eval "db.shutdownServer()" 2>/dev/null || true
               sleep 2
               chmod 600 "$KEYFILE" 2>/dev/null || true
-              mongod --replSet rs0 --dbpath /workspace/mongodb/data/db --keyFile "$KEYFILE" --port 27017 --quiet --fork --logpath /workspace/mongodb/logs/mongod.log
+              mongod --replSet rs0 --dbpath /data/mongodb/db --keyFile "$KEYFILE" --port 27017 --quiet --fork --logpath /data/mongodb/logs/mongod.log
             fi
             for i in 1 2 3 4 5; do mongosh --quiet --eval "db.runCommand({ping:1})" 2>/dev/null && break; sleep 1; done
             echo "MongoDB 就绪"
