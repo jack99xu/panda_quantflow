@@ -176,3 +176,13 @@ user_data/*
 # only development team files
 .dev.README.md
 .drafts/requirements-all.txt
+
+mongodb/
+panda_factor/
+venv/
+
+
+mongodb/
+panda_factor/
+venv/
+

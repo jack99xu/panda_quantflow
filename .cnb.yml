@@ -1,0 +1,34 @@
+$:
+  vscode:
+    - docker:
+        build: .ide/Dockerfile
+      services:
+        - vscode
+        - docker
+      stages:
+        # 第1步：安装 panda_factor 子模块和 panda_quantflow（editable 安装）
+        - name: install-editable-packages
+          script: |
+            source /opt/venv/bin/activate
+            cd /workspace/panda_factor
+            pip install -e ./panda_common ./panda_factor ./panda_data ./panda_data_hub ./panda_llm ./panda_factor_server
+            cd /workspace
+            pip install -e .
+        # 第2步：启动 MongoDB
+        - name: start-mongodb
+          script: |
+            chmod 600 /workspace/mongodb/conf/mongo.key 2>/dev/null || true
+            mongod -replSet rs0 --dbpath /workspace/mongodb/data/db --keyFile /workspace/mongodb/conf/mongo.key --port 27017 --quiet --auth &
+        # 第3步：启动 panda_factor 服务
+        - name: start-panda-factor
+          script: |
+            source /opt/venv/bin/activate
+            cd /workspace/panda_factor
+            python panda_factor_server/panda_factor_server/__main__.py &
+        # 第4步：启动 panda_quantflow 服务
+        - name: start-panda-quantflow
+          script: |
+            source /opt/venv/bin/activate
+            cd /workspace
+            nohup python src/panda_server/main.py > /tmp/quantflow.log 2>&1 &
+            echo "服务已启动，监听端口 8000"
