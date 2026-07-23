@@ -29,11 +29,29 @@ $:
             pip install -e ./panda_common ./panda_factor ./panda_data ./panda_data_hub ./panda_llm ./panda_factor_server
             cd /workspace
             pip install -e .
-        # 第4步：启动 MongoDB
+        # 第4步：启动 MongoDB（含首次初始化）
         - name: start-mongodb
           script: |
-            chmod 600 /workspace/mongodb/conf/mongo.key 2>/dev/null || true
-            mongod -replSet rs0 --dbpath /workspace/mongodb/data/db --keyFile /workspace/mongodb/conf/mongo.key --port 27017 --quiet --auth &
+            mkdir -p /workspace/mongodb/data/db /workspace/mongodb/logs
+            KEYFILE=/workspace/mongodb/conf/mongo.key
+            if [ -f /workspace/mongodb/data/db/storage.bson ]; then
+              echo "MongoDB 数据已存在，直接启动"
+              chmod 600 "$KEYFILE" 2>/dev/null || true
+              mongod --replSet rs0 --dbpath /workspace/mongodb/data/db --keyFile "$KEYFILE" --port 27017 --quiet --fork --logpath /workspace/mongodb/logs/mongod.log
+            else
+              echo "首次初始化 MongoDB..."
+              mongod --replSet rs0 --dbpath /workspace/mongodb/data/db --port 27017 --quiet --fork --logpath /workspace/mongodb/logs/mongod.log
+              for i in 1 2 3 4 5 6 7 8 9 10; do mongosh --quiet --eval "db.runCommand({ping:1})" 2>/dev/null && break; sleep 1; done
+              mongosh --quiet --eval "rs.initiate({_id:'rs0', members:[{_id:0, host:'127.0.0.1:27017'}]})"
+              sleep 3
+              mongosh --quiet --eval "db.getSiblingDB('admin').createUser({user:'panda', pwd:'panda', roles:[{role:'root', db:'admin'}]})"
+              mongosh admin --quiet --eval "db.shutdownServer()" 2>/dev/null || true
+              sleep 2
+              chmod 600 "$KEYFILE" 2>/dev/null || true
+              mongod --replSet rs0 --dbpath /workspace/mongodb/data/db --keyFile "$KEYFILE" --port 27017 --quiet --fork --logpath /workspace/mongodb/logs/mongod.log
+            fi
+            for i in 1 2 3 4 5; do mongosh --quiet --eval "db.runCommand({ping:1})" 2>/dev/null && break; sleep 1; done
+            echo "MongoDB 就绪"
         # 第5步：启动 panda_factor 服务
         - name: start-panda-factor
           script: |
