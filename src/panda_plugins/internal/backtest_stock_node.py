@@ -72,9 +72,8 @@ class StockBacktestControl(BaseWorkNode):
                 df_factor=input.factors,
             )
         except Exception as e:
-            # 提取前两行和最后一行
-            error_lines = e.message.splitlines()
-            self.log_error(error_lines[0] + "\n" + error_lines[1] + "\n异常信息：" + error_lines[2])
+            error_msg = str(getattr(e, 'message', e))
+            self.log_error(f"回测执行失败: {error_msg}")
             return StockBacktestOutputModel(backtest_id=str(back_test_id))
         return StockBacktestOutputModel(backtest_id=str(back_test_id))
 
