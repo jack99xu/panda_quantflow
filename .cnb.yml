@@ -40,6 +40,7 @@ $:
             fi
             if [ -f /workspace/mongodb/data/db/storage.bson ]; then
               echo "MongoDB 数据已存在，直接启动"
+              chmod 600 "$KEYFILE" 2>/dev/null || true
               mongod --replSet rs0 --dbpath /workspace/mongodb/data/db --keyFile "$KEYFILE" --port 27017 --quiet --fork --logpath /workspace/mongodb/logs/mongod.log
             else
               echo "首次初始化 MongoDB..."
@@ -50,6 +51,7 @@ $:
               mongosh --quiet --eval "db.getSiblingDB('admin').createUser({user:'panda', pwd:'panda', roles:[{role:'root', db:'admin'}]})"
               mongosh admin --quiet --eval "db.shutdownServer()" 2>/dev/null || true
               sleep 2
+              chmod 600 "$KEYFILE" 2>/dev/null || true
               mongod --replSet rs0 --dbpath /workspace/mongodb/data/db --keyFile "$KEYFILE" --port 27017 --quiet --fork --logpath /workspace/mongodb/logs/mongod.log
             fi
             for i in 1 2 3 4 5; do mongosh --quiet --eval "db.runCommand({ping:1})" 2>/dev/null && break; sleep 1; done
