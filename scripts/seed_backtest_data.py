@@ -199,8 +199,16 @@ def main():
 
         # 5. 批量顺序下载股票日线（baostock 非线程安全，不能并行）
         print(f"\n[5/5] 顺序下载股票日线...")
+        # 确保 stock_market 有 symbol 索引，否则 7000+ find_one 全表扫描会卡 10 分钟
+        print("   - 创建/确认索引...")
+        db.stock_market.create_index("symbol")
+        db.stock_market.create_index([("symbol", 1), ("date", -1)])
+        db.index_daily_price.create_index("symbol")
+
+        print("   - 构建待下载列表（每 500 只打一次进度）...")
         to_download = []
-        for raw_code, code_name, trade_status in all_stocks:
+        build_t0 = time.time()
+        for i, (raw_code, code_name, trade_status) in enumerate(all_stocks, 1):
             if trade_status != "1":
                 continue
             symbol = get_symbol(raw_code)
@@ -209,9 +217,12 @@ def main():
                 continue
             start = START_DATE if not latest else latest["date"]
             to_download.append((symbol, code_name or raw_code, raw_code, start))
+            if i % 500 == 0:
+                now = time.time()
+                print(f"      已扫描 {i}/{len(all_stocks)}（{now - build_t0:.0f}s），待下载: {len(to_download)}")
 
         total = len(to_download)
-        print(f"   需下载: {total} 只")
+        print(f"   需下载: {total} 只（构建耗时 {time.time() - build_t0:.0f}s）")
         if total == 0:
             print("   - 全部已最新")
         else:
@@ -249,7 +260,7 @@ def main():
                 except Exception as e:
                     pass  # 部分股票无数据或失败，跳过
 
-                # 每 50 只或 30 秒打一次进度，防止 pipeline 超时 kill
+                # 每 50 只或 25 秒打一次进度，防止 pipeline 超时 kill
                 now = time.time()
                 if idx % 50 == 0 or idx == total or (now - last_print) > 25:
                     elapsed = now - t0
