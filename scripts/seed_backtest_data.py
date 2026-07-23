@@ -1,8 +1,6 @@
 """
 开机自动补齐回测行情数据到 MongoDB
-1. 从 `stock_info_new` 读取已有股票/指数列表（从完整数据库恢复后已有数千只标的）
-2. 检查每只标的的日线数据是否已到目标日期
-3. 对缺失部分，用 baostock 增量下载补齐
+使用 baostock 全量补齐 A 股日线数据，支持多线程并行下载
 """
 
 import baostock as bs
@@ -11,33 +9,27 @@ import os
 import sys
 import time
 import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# MongoDB 配置
 MONGO_HOST = os.getenv("MONGO_URI", "127.0.0.1:27017")
 MONGO_USER = os.getenv("MONGO_USER", "panda")
 MONGO_PASS = os.getenv("MONGO_PASSWORD", "panda")
 MONGO_AUTH = os.getenv("MONGO_AUTH_DB", "admin")
 MONGO_DB = os.getenv("MONGO_DB", "panda")
 
-# 补齐目标日期
-TARGET_DATE = "2026-07-22"
-TARGET_DATE_C = "20260722"  # 紧凑格式
+START_DATE = "2020-01-01"
+END_DATE = "2026-07-22"
+END_DATE_C = "20260722"
 
-# 默认起始日期（新标的无历史数据时从此开始下载）
-DEFAULT_START = "2024-01-01"
+# 指数列表
+INDEX_LIST = [
+    ("000001", "上证指数"),
+    ("000300", "沪深300"),
+    ("000500", "中证500"),
+    ("001000", "中证1000"),
+]
 
-# 回退标的列表（仅当 stock_info_new 为空时才用）
-FALLBACK_STOCKS = [
-    ("000001", "平安银行"), ("000002", "万科A"), ("000333", "美的集团"),
-    ("000651", "格力电器"), ("000858", "五粮液"), ("002594", "比亚迪"),
-    ("300750", "宁德时代"), ("600000", "浦发银行"), ("600036", "招商银行"),
-    ("600519", "贵州茅台"), ("601318", "中国平安"), ("000568", "泸州老窖"),
-    ("002415", "海康威视"),
-]
-FALLBACK_INDICES = [
-    ("000001", "上证指数"), ("000300", "沪深300"),
-    ("000500", "中证500"), ("001000", "中证1000"),
-]
+DOWNLOAD_WORKERS = 10  # 并行下载线程数
 
 
 def get_symbol(code):
@@ -46,11 +38,6 @@ def get_symbol(code):
 
 def get_bs_code(code):
     return f"sh.{code}" if code.startswith("6") else f"sz.{code}"
-
-
-def get_raw_code(symbol):
-    """从 '000001.SZ' → '000001'"""
-    return symbol.split(".")[0]
 
 
 def wait_mongo(max_retries=30):
@@ -68,32 +55,7 @@ def wait_mongo(max_retries=30):
     return False
 
 
-def get_latest_date(collection, symbol):
-    """查询某只标的在 collection 中的最新日期，返回 YYYYMMDD 或 None"""
-    doc = collection.find_one({"symbol": symbol}, sort=[("date", -1)])
-    return doc["date"] if doc else None
-
-
-def fetch_kline(bs_code, start, end):
-    """从 baostock 下载日线，返回 dict 列表"""
-    rs = bs.query_history_k_data_plus(
-        bs_code,
-        "date,code,open,high,low,close,preclose,volume,amount",
-        start, end,
-        frequency="d",
-        adjustflag="2",
-    )
-    rows = []
-    while rs.next():
-        row = rs.get_row_data()
-        if row[0] is None:
-            continue
-        rows.append(row)
-    return rows
-
-
 def build_doc(row, symbol, code):
-    """将 baostock 行转为 MongoDB 文档"""
     try:
         return {
             "symbol": symbol,
@@ -113,17 +75,34 @@ def build_doc(row, symbol, code):
         return None
 
 
+def download_stock(args):
+    """下载单只股票从 start 到 END_DATE 的日线，返回 (symbol, name, docs, error)"""
+    symbol, name, code, start = args
+    try:
+        bs_code = get_bs_code(code)
+        rs = bs.query_history_k_data_plus(
+            bs_code,
+            "date,code,open,high,low,close,preclose,volume,amount",
+            start, END_DATE,
+            frequency="d",
+            adjustflag="2",
+        )
+        rows = []
+        while rs.next():
+            row = rs.get_row_data()
+            if row[0] is not None:
+                rows.append(row)
+    except Exception as e:
+        return (symbol, name, [], str(e))
+
+    docs = [build_doc(r, symbol, code) for r in rows]
+    docs = [d for d in docs if d is not None]
+    return (symbol, name, docs, None)
+
+
 def update_trade_calendar(db):
     """重新生成交易日历（全量覆盖）"""
-    cal_first = db.trade_calendar.find_one(sort=[("nature_date", 1)])
-    if cal_first:
-        start = str(cal_first["nature_date"])
-        y, m, d = start[:4], start[4:6], start[6:8]
-        cal_start = f"{y}-{m}-{d}"
-    else:
-        cal_start = DEFAULT_START
-
-    rs = bs.query_trade_dates(cal_start, TARGET_DATE)
+    rs = bs.query_trade_dates(START_DATE, END_DATE)
     docs = []
     while rs.next():
         row = rs.get_row_data()
@@ -131,7 +110,6 @@ def update_trade_calendar(db):
         is_trade = 1 if row[1] == "1" else 0
         for ex in ("SH", "SZ"):
             docs.append({"nature_date": nat, "is_trade": is_trade, "exchange": ex})
-
     if docs:
         db.trade_calendar.delete_many({})
         db.trade_calendar.insert_many(docs, ordered=False)
@@ -140,62 +118,34 @@ def update_trade_calendar(db):
     return len(docs)
 
 
-def fill_kline(db, coll, items, kind_label):
-    """补齐一批标的的日线数据"""
-    filled = 0
-    skipped = 0
-    for symbol, name in items:
-        code = get_raw_code(symbol)
-        # 已有最新日期
-        latest = get_latest_date(coll, symbol)
-        if latest and latest >= TARGET_DATE_C:
-            skipped += 1
-            continue
-
-        # 确定 baostock 查询起始日
-        if latest:
-            y, m, d = latest[:4], latest[4:6], latest[6:8]
-            start = f"{y}-{m}-{d}"
-        else:
-            start = DEFAULT_START
-
-        # 下载
-        try:
-            bs_code = get_bs_code(code) if kind_label == "股票" else f"sh.{code}"
-            rows = fetch_kline(bs_code, start, TARGET_DATE)
-        except Exception as e:
-            print(f"   × {symbol} 下载失败: {e}")
-            continue
-
-        # 过滤已存在的日期
-        existing = set()
-        for d in coll.find({"symbol": symbol}, {"date": 1, "_id": 0}):
-            existing.add(d["date"])
-
+def download_index_kline(code, name):
+    """下载单只指数日线"""
+    symbol = f"{code}.SH"
+    bs_code = f"sh.{code}"
+    try:
+        rs = bs.query_history_k_data_plus(
+            bs_code,
+            "date,code,open,high,low,close,preclose,volume,amount",
+            START_DATE, END_DATE,
+            frequency="d",
+            adjustflag="2",
+        )
         docs = []
-        for row in rows:
-            date_c = row[0].replace("-", "")
-            if date_c in existing:
+        while rs.next():
+            row = rs.get_row_data()
+            if row[0] is None:
                 continue
             doc = build_doc(row, symbol, code)
             if doc:
                 docs.append(doc)
-
-        if docs:
-            try:
-                coll.insert_many(docs, ordered=False)
-                print(f"   √ {symbol} ({name}): +{len(docs)} 条")
-                filled += len(docs)
-            except Exception as e:
-                print(f"   × {symbol} 写入失败: {e}")
-        else:
-            print(f"   - {symbol} ({name}): 无新增")
-    return filled, skipped
+        return (symbol, name, docs, None)
+    except Exception as e:
+        return (symbol, name, [], str(e))
 
 
 def main():
     print("=" * 60)
-    print(f"回测行情数据预加载（增量补齐至 {TARGET_DATE}）")
+    print(f"回测行情数据预加载（{START_DATE} ~ {END_DATE}）")
     print("=" * 60)
 
     # 0. 等 MongoDB
@@ -205,62 +155,12 @@ def main():
         sys.exit(1)
     print("   MongoDB 就绪 ✓")
 
-    # 1. 连接
     uri = f"mongodb://{MONGO_USER}:{MONGO_PASS}@{MONGO_HOST}/{MONGO_AUTH}"
     client = pymongo.MongoClient(uri)
     db = client[MONGO_DB]
 
-    # 2. 检查数据现状
-    print("\n[1/5] 检查数据完整性...")
-    stock_cnt = db.stock_market.count_documents({})
-    index_cnt = db.index_daily_price.count_documents({})
-    info_cnt = db.stock_info_new.count_documents({})
-
-    print(f"   stock_info_new: {info_cnt} 条")
-    print(f"   stock_market:   {stock_cnt} 条")
-    print(f"   index_daily_price: {index_cnt} 条")
-
-    # 从 stock_info_new 读取已有标的
-    stocks = list(db.stock_info_new.find({"type": 0}))
-    indices = list(db.stock_info_new.find({"type": 1}))
-
-    # 回退：如果 stock_info_new 为空，用硬编码列表
-    if not stocks:
-        print("   ⚠ stock_info_new 无股票数据，使用内置回退列表")
-        stocks = [(c, n) for c, n in FALLBACK_STOCKS]
-        stocks = [{"symbol": get_symbol(c), "name": n} for c, n in FALLBACK_STOCKS]
-    if not indices:
-        print("   ⚠ stock_info_new 无指数数据，使用内置回退列表")
-        indices = [{"symbol": f"{c}.SH", "name": n} for c, n in FALLBACK_INDICES]
-
-    # 检查哪些标的未补齐
-    missing_stocks = []
-    for s in stocks:
-        sym = s["symbol"]
-        latest = get_latest_date(db.stock_market, sym)
-        if not latest or latest < TARGET_DATE_C:
-            missing_stocks.append((sym, s.get("name", sym)))
-    missing_indices = []
-    for idx in indices:
-        sym = idx["symbol"]
-        latest = get_latest_date(db.index_daily_price, sym)
-        if not latest or latest < TARGET_DATE_C:
-            missing_indices.append((sym, idx.get("name", sym)))
-
-    # 交易日历检查
-    cal_latest = db.trade_calendar.find_one(sort=[("nature_date", -1)])
-    cal_missing = cal_latest is None or str(cal_latest["nature_date"]) < TARGET_DATE_C
-
-    if not missing_stocks and not missing_indices and not cal_missing:
-        print(f"\n✅ 全部数据已补齐至 {TARGET_DATE}，跳过预加载")
-        client.close()
-        return
-
-    print(f"\n   需补齐: 股票 {len(missing_stocks)} 只, 指数 {len(missing_indices)} 个"
-          f"{', 日历' if cal_missing else ''}")
-
-    # 3. 连接 baostock
-    print("\n[2/5] 连接 baostock...")
+    # 1. 连接 baostock
+    print("\n[1/5] 连接 baostock...")
     lg = bs.login()
     if lg.error_code != "0":
         print(f"❌ baostock 登录失败: {lg.error_msg}")
@@ -269,23 +169,153 @@ def main():
     print("   baostock 就绪 ✓")
 
     try:
-        # 4. 交易日历
-        print(f"\n[3/5] 交易日历更新...")
+        # 2. 数据现状
+        print("\n[2/5] 检查已有数据...")
+        stock_cnt = db.stock_market.count_documents({})
+        info_cnt = db.stock_info_new.count_documents({})
+        print(f"   stock_info_new: {info_cnt} 条")
+        print(f"   stock_market:   {stock_cnt} 条")
+
+        # 3. 获取完整 A 股列表
+        print("\n[3/5] 获取 A 股列表...")
+        rs = bs.query_all_stock(END_DATE)
+        all_stocks = []
+        while rs.next():
+            row = rs.get_row_data()
+            code = row[0]       # sh.600000 或 sz.000001
+            code_name = row[1]  # 股票名称
+            status = row[2]     # 1=正常交易
+            raw_code = code.split(".")[1] if "." in code else code
+            all_stocks.append((raw_code, code_name, status))
+        print(f"   baostock 返回 {len(all_stocks)} 只股票")
+
+        # 4. 更新 stock_info_new（只插入新股票，不覆盖已有）
+        print(f"\n[4/5] 更新 stock_info_new...")
+        existing_symbols = set()
+        for s in db.stock_info_new.find({"type": 0}, {"symbol": 1, "_id": 0}):
+            existing_symbols.add(s["symbol"])
+
+        new_info = []
+        for raw_code, code_name, status in all_stocks:
+            if not code_name or code_name == "":
+                code_name = raw_code
+            symbol = get_symbol(raw_code)
+            if symbol not in existing_symbols and status == "1":
+                new_info.append({"symbol": symbol, "name": code_name, "type": 0})
+                existing_symbols.add(symbol)
+
+        if new_info:
+            db.stock_info_new.insert_many(new_info, ordered=False)
+            print(f"   √ 新增 {len(new_info)} 只股票到 stock_info_new")
+        else:
+            print(f"   - stock_info_new 已包含全部 {len(existing_symbols)} 只股票，无需更新")
+
+        # 更新指数信息
+        existing_idx = set()
+        for s in db.stock_info_new.find({"type": 1}, {"symbol": 1, "_id": 0}):
+            existing_idx.add(s["symbol"])
+        new_idx_info = []
+        for code, name in INDEX_LIST:
+            symbol = f"{code}.SH"
+            if symbol not in existing_idx:
+                new_idx_info.append({"symbol": symbol, "name": name, "type": 1})
+                existing_idx.add(symbol)
+        if new_idx_info:
+            db.stock_info_new.insert_many(new_idx_info, ordered=False)
+            print(f"   √ 新增 {len(new_idx_info)} 只指数到 stock_info_new")
+
+        # 5. 批量并行下载股票日线
+        print(f"\n[5/5] 并行下载股票日线（{DOWNLOAD_WORKERS} 线程）...")
+        # 确定哪些股票需要下载
+        to_download = []
+        for raw_code, code_name, status in all_stocks:
+            if status != "1":
+                continue
+            symbol = get_symbol(raw_code)
+            latest = db.stock_market.find_one({"symbol": symbol}, sort=[("date", -1)])
+            if latest and latest["date"] >= END_DATE_C:
+                continue  # 已是最新
+            start = START_DATE if not latest else latest["date"]
+            to_download.append((symbol, code_name or raw_code, raw_code, start))
+
+        total = len(to_download)
+        print(f"   需下载: {total} 只（跳过已补齐的）")
+
+        stock_filled = 0
+        done = 0
+        t0 = time.time()
+
+        if total > 0:
+            with ThreadPoolExecutor(max_workers=DOWNLOAD_WORKERS) as pool:
+                fut_map = {pool.submit(download_stock, t): t for t in to_download}
+                for fut in as_completed(fut_map):
+                    task = fut_map[fut]
+                    symbol, name, docs, err = fut.result()
+                    done += 1
+
+                    if err:
+                        print(f"   × [{done}/{total}] {symbol} ({name}) 失败: {err}")
+                        continue
+
+                    if docs:
+                        # 过滤已存在的日期
+                        existing_dates = set()
+                        for d in db.stock_market.find({"symbol": symbol}, {"date": 1, "_id": 0}):
+                            existing_dates.add(d["date"])
+                        new_docs = [d for d in docs if d["date"] not in existing_dates]
+
+                        if new_docs:
+                            try:
+                                db.stock_market.insert_many(new_docs, ordered=False)
+                                stock_filled += len(new_docs)
+                            except Exception as e:
+                                print(f"   × [{done}/{total}] {symbol} 写入失败: {e}")
+
+                    # 进度显示
+                    if done % 100 == 0 or done == total:
+                        elapsed = time.time() - t0
+                        rate = done / elapsed if elapsed > 0 else 0
+                        print(f"   √ [{done}/{total}] 已新增 {stock_filled} 条 | "
+                              f"{rate:.0f} 只/秒")
+        else:
+            print(f"   - 全部股票已是最新，无需下载")
+
+        # 6. 下载指数日线
+        print(f"\n  下载指数日线...")
+        idx_filled = 0
+        for code, name in INDEX_LIST:
+            symbol = f"{code}.SH"
+            latest = db.index_daily_price.find_one({"symbol": symbol}, sort=[("date", -1)])
+            if latest and latest["date"] >= END_DATE_C:
+                print(f"   - {symbol} ({name}) 已最新")
+                continue
+
+            sym, n, docs, err = download_index_kline(code, name)
+            if err:
+                print(f"   × {sym} ({name}) 失败: {err}")
+                continue
+
+            if docs:
+                existing_dates = set()
+                for d in db.index_daily_price.find({"symbol": sym}, {"date": 1, "_id": 0}):
+                    existing_dates.add(d["date"])
+                new_docs = [d for d in docs if d["date"] not in existing_dates]
+
+                if new_docs:
+                    db.index_daily_price.insert_many(new_docs, ordered=False)
+                    idx_filled += len(new_docs)
+                    print(f"   √ {sym} ({name}): +{len(new_docs)} 条")
+
+        # 7. 交易日历
+        print(f"\n  更新交易日历...")
         update_trade_calendar(db)
-
-        # 5. 补齐股票日线
-        print(f"\n[4/5] 补齐股票日线 (stock_market)...")
-        stock_filled, stock_ok = fill_kline(db, db.stock_market, missing_stocks, "股票")
-
-        # 6. 补齐指数日线
-        print(f"\n[5/5] 补齐指数日线 (index_daily_price)...")
-        idx_filled, idx_ok = fill_kline(db, db.index_daily_price, missing_indices, "指数")
 
         # 统计
         final_stock = db.stock_market.count_documents({})
         final_idx = db.index_daily_price.count_documents({})
+        elapsed = time.time() - t0
         print(f"\n{'=' * 60}")
-        print(f"✅ 补齐完成！")
+        print(f"✅ 补齐完成！耗时 {elapsed:.0f}s")
         print(f"   新增行情 {stock_filled} 条 / 指数 {idx_filled} 条")
         print(f"   总量 — 股票 {final_stock} 条 / 指数 {final_idx} 条")
         print(f"{'=' * 60}")
