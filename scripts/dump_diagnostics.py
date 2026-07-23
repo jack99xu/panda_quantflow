@@ -23,7 +23,7 @@ def main():
     lines.append("=" * 60)
 
     # stock_info_new
-    count = db.mongo_find(config["MONGO_DB"], "stock_info_new", {}, {"symbol": 1, "name": 1, "type": 1})
+    count = db.mongo_find(config["MONGO_DB"], "stock_info_new", {}, projection={"symbol": 1, "name": 1, "type": 1})
     if count:
         lines.append(f"\nstock_info_new ({len(count)} 条):")
         for doc in count[:20]:
@@ -32,19 +32,19 @@ def main():
         lines.append(f"\nstock_info_new: 空")
 
     # stock_market
-    count = db.mongo_find(config["MONGO_DB"], "stock_market", {}, {"symbol": 1})
+    count = db.mongo_find(config["MONGO_DB"], "stock_market", {}, projection={"symbol": 1})
     symbols = set(d.get("symbol") for d in count) if count else set()
     lines.append(f"\nstock_market: {len(symbols)} 只股票")
 
     # index_daily_price
-    count = db.mongo_find(config["MONGO_DB"], "index_daily_price", {}, {"symbol": 1})
+    count = db.mongo_find(config["MONGO_DB"], "index_daily_price", {}, projection={"symbol": 1})
     symbols = set(d.get("symbol") for d in count) if count else set()
     lines.append(f"index_daily_price: {len(symbols)} 只指数")
     for s in sorted(symbols):
         lines.append(f"  {s}")
 
     # trade_calendar
-    total = db.mongo_find(config["MONGO_DB"], "trade_calendar", {}, {"nature_date": 1})
+    total = db.mongo_find(config["MONGO_DB"], "trade_calendar", {}, projection={"nature_date": 1})
     if total:
         dates = set(d.get("nature_date") for d in total)
         lines.append(f"\ntrade_calendar: {len(dates)} 个日期")

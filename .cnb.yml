@@ -33,20 +33,12 @@ $:
         # 第4步：启动 MongoDB（含首次初始化）
         - name: start-mongodb
           script: |
-            # 从 ~/.cnb 漫游备份恢复（如有）
-            if [ -f ~/.cnb/mongodb-db.tar.gz ] && [ ! -f /data/mongodb/db/storage.bson ]; then
-              echo "从漫游备份恢复 MongoDB..."
-              mkdir -p /data/mongodb/db /data/mongodb/logs
-              tar -xzf ~/.cnb/mongodb-db.tar.gz -C /data/mongodb/db
-              echo "恢复完成"
-            fi
             mkdir -p /data/mongodb/db /data/mongodb/logs
             KEYFILE=/data/mongodb/conf/mongo.key
             mkdir -p /data/mongodb/conf
             if [ ! -f "$KEYFILE" ]; then
               (openssl rand -base64 756 > "$KEYFILE" 2>/dev/null) || python3 -c "import os,sys; f=sys.argv[1]; open(f,'w').write(os.urandom(96).hex()); os.chmod(f,0o600)" "$KEYFILE"
             fi
-            # 若数据目录为空，尝试从预置压缩包恢复
             DATA_TGZ=/workspace/mongodb_data/mongodb-macos-aarch64-8.0.8.2-20250717.tar.gz
             if [ ! -f /data/mongodb/db/storage.bson ] && [ -f "$DATA_TGZ" ]; then
               echo "从预置数据恢复 MongoDB..."
@@ -74,27 +66,13 @@ $:
             fi
             for i in 1 2 3 4 5; do mongosh --quiet --eval "db.runCommand({ping:1})" 2>/dev/null && break; sleep 1; done
             echo "MongoDB 就绪"
-        # 第5步：预加载回测行情数据（首次启动自动用 baostock 填充）
+        # 第5步：预加载回测行情数据
         - name: seed-backtest-data
           script: |
             . /opt/venv/bin/activate
             pip install -q baostock
             cd /workspace
             python scripts/seed_backtest_data.py
-        # 第5.5步：备份 MongoDB 数据到 ~/.cnb（漫游目录，跨部署保留）
-        - name: backup-mongodb-to-cnb
-          script: |
-            if [ -f /data/mongodb/db/storage.bson ]; then
-              mkdir -p ~/.cnb
-              echo "备份 MongoDB 数据到 ~/.cnb..."
-              mongosh admin -u panda -p panda --quiet --eval "db.shutdownServer()" 2>/dev/null || true
-              sleep 2
-              tar -czf ~/.cnb/mongodb-db.tar.gz -C /data/mongodb/db .
-              KEYFILE=/data/mongodb/conf/mongo.key
-              mongod --replSet rs0 --dbpath /data/mongodb/db --keyFile "$KEYFILE" --port 27017 --quiet --fork --logpath /data/mongodb/logs/mongod.log
-              for i in 1 2 3 4 5; do mongosh --quiet --eval "db.runCommand({ping:1})" 2>/dev/null && break; sleep 1; done
-              echo "MongoDB 数据已备份 ($(du -sh ~/.cnb/mongodb-db.tar.gz | cut -f1))"
-            fi
         # 第6步：启动 panda_factor 服务
         - name: start-panda-factor
           script: |
@@ -111,20 +89,9 @@ $:
             nohup python src/panda_server/main.py > /tmp/quantflow.log 2>&1 &
             sleep 3
             echo "服务已启动，监听端口 8000"
-        # 第8步：dump 诊断信息到项目目录（第二次部署验证恢复）
+        # 第8步：dump 诊断信息到项目目录
         - name: dump-diagnostics
           script: |
             . /opt/venv/bin/activate
             cd /workspace
             python scripts/dump_diagnostics.py
-      endStages:
-        # 环境关闭前备份 MongoDB（兜底，防止意外丢失）
-        - name: backup-mongodb
-          script: |
-            if [ -f /data/mongodb/db/storage.bson ]; then
-              mkdir -p ~/.cnb
-              mongosh admin -u panda -p panda --quiet --eval "db.shutdownServer()" 2>/dev/null || true
-              sleep 2
-              tar -czf ~/.cnb/mongodb-db.tar.gz -C /data/mongodb/db . 2>/dev/null
-              echo "endStages: MongoDB 数据已备份到 ~/.cnb"
-            fi
