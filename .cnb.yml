@@ -73,6 +73,14 @@ $:
             fi
             for i in 1 2 3 4 5; do mongosh --quiet --eval "db.runCommand({ping:1})" 2>/dev/null && break; sleep 1; done
             echo "MongoDB 就绪"
+            # 如果有手动上传的 mongodump tar.gz，解压覆盖 git 备份（首次部署时用）
+            if [ -f /workspace/data/mongodb-dump.tar.gz ] && [ ! -f /workspace/data/mongodb-dump/panda/stock_market.bson ]; then
+              echo "检测到上传的数据库备份，解压中..."
+              rm -rf /workspace/data/mongodb-dump
+              mkdir -p /workspace/data/mongodb-dump
+              tar -xzf /workspace/data/mongodb-dump.tar.gz -C /workspace/data/mongodb-dump/
+              echo "上传的数据库备份解压完成"
+            fi
             # 从 git 备份恢复（如有）
             if [ -d /workspace/data/mongodb-dump ]; then
               echo "从 git 备份恢复 MongoDB 数据..."
