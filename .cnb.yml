@@ -111,7 +111,7 @@ $:
             nohup python src/panda_server/main.py > /tmp/quantflow.log 2>&1 &
             sleep 3
             echo "服务已启动，监听端口 8000"
-        # 第8步：dump 诊断信息到项目目录（第二次部署时应跳过 seed）
+        # 第8步：dump 诊断信息到项目目录（第二次部署验证恢复）
         - name: dump-diagnostics
           script: |
             . /opt/venv/bin/activate
