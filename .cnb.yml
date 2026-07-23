@@ -85,6 +85,7 @@ $:
         - name: backup-mongodb-to-cnb
           script: |
             if [ -f /data/mongodb/db/storage.bson ]; then
+              mkdir -p ~/.cnb
               echo "备份 MongoDB 数据到 ~/.cnb..."
               mongosh admin -u panda -p panda --quiet --eval "db.shutdownServer()" 2>/dev/null || true
               sleep 2
@@ -121,6 +122,7 @@ $:
         - name: backup-mongodb
           script: |
             if [ -f /data/mongodb/db/storage.bson ]; then
+              mkdir -p ~/.cnb
               mongosh admin -u panda -p panda --quiet --eval "db.shutdownServer()" 2>/dev/null || true
               sleep 2
               tar -czf ~/.cnb/mongodb-db.tar.gz -C /data/mongodb/db . 2>/dev/null
