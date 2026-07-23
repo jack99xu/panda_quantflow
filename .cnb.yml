@@ -35,7 +35,9 @@ $:
             mkdir -p /workspace/mongodb/data/db /workspace/mongodb/logs
             KEYFILE=/workspace/mongodb/conf/mongo.key
             mkdir -p /workspace/mongodb/conf
-            if [ ! -f "$KEYFILE" ]; then openssl rand -base64 756 > "$KEYFILE" && chmod 600 "$KEYFILE"; fi
+            if [ ! -f "$KEYFILE" ]; then
+              (openssl rand -base64 756 > "$KEYFILE" 2>/dev/null) || python3 -c "import os,sys; f=sys.argv[1]; open(f,'w').write(os.urandom(96).hex()); os.chmod(f,0o600)" "$KEYFILE"
+            fi
             if [ -f /workspace/mongodb/data/db/storage.bson ]; then
               echo "MongoDB 数据已存在，直接启动"
               mongod --replSet rs0 --dbpath /workspace/mongodb/data/db --keyFile "$KEYFILE" --port 27017 --quiet --fork --logpath /workspace/mongodb/logs/mongod.log
