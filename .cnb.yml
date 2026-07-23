@@ -46,8 +46,9 @@ $:
             if [ ! -f "$KEYFILE" ]; then
               (openssl rand -base64 756 > "$KEYFILE" 2>/dev/null) || python3 -c "import os,sys; f=sys.argv[1]; open(f,'w').write(os.urandom(96).hex()); os.chmod(f,0o600)" "$KEYFILE"
             fi
-            DATA_TGZ=/workspace/mongodb_data/mongodb-macos-aarch64-8.0.8.2-20250717.tar.gz
-            if [ ! -f /data/mongodb/db/storage.bson ] && [ -f "$DATA_TGZ" ]; then
+            DATA_TGZ=/workspace/mongodb-macos-aarch64-8.0.8.2-20250717.tar.gz
+            # 只有首次部署（无 git 备份）时才解压完整数据库，后续用 git 恢复更快
+            if [ ! -f /data/mongodb/db/storage.bson ] && [ -f "$DATA_TGZ" ] && [ ! -d /workspace/data/mongodb-dump ]; then
               echo "从预置数据恢复 MongoDB..."
               mkdir -p /data/mongodb/tmp_extract
               tar -xzf "$DATA_TGZ" -C /data/mongodb/tmp_extract mongodb/data/db/
