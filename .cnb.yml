@@ -2,6 +2,8 @@ $:
   vscode:
     - docker:
         build: .ide/Dockerfile
+        volumes:
+          - mongodb-data:/workspace/mongodb/data:read-write
       services:
         - vscode
         - docker
