@@ -6,17 +6,22 @@ $:
         - vscode
         - docker
       stages:
-        # 第1步：克隆/更新 panda_factor
+        # 第1步：从 GitHub 拉取最新代码
+        - name: sync-from-github
+          script: |
+            git remote add github https://github.com/jack99xu/panda_quantflow.git 2>/dev/null || true
+            git pull github main --ff-only 2>/dev/null || echo "已是最新"
+        # 第2步：克隆/更新 panda_factor
         - name: setup-panda-factor
           script: |
             if [ -d /workspace/panda_factor/.git ]; then
-              echo "panda_factor 已存在，拉取更新..."
+              echo "panda_factor 已存在"
               cd /workspace/panda_factor && git pull
             else
               echo "克隆 panda_factor..."
               git clone https://github.com/PandaAI-Tech/panda_factor.git /workspace/panda_factor
             fi
-        # 第2步：安装 editable 包
+        # 第3步：安装 editable 包
         - name: install-editable-packages
           script: |
             . /opt/venv/bin/activate
@@ -24,18 +29,18 @@ $:
             pip install -e ./panda_common ./panda_factor ./panda_data ./panda_data_hub ./panda_llm ./panda_factor_server
             cd /workspace
             pip install -e .
-        # 第3步：启动 MongoDB
+        # 第4步：启动 MongoDB
         - name: start-mongodb
           script: |
             chmod 600 /workspace/mongodb/conf/mongo.key 2>/dev/null || true
             mongod -replSet rs0 --dbpath /workspace/mongodb/data/db --keyFile /workspace/mongodb/conf/mongo.key --port 27017 --quiet --auth &
-        # 第4步：启动 panda_factor 服务
+        # 第5步：启动 panda_factor 服务
         - name: start-panda-factor
           script: |
             . /opt/venv/bin/activate
             cd /workspace/panda_factor
             nohup python panda_factor_server/panda_factor_server/__main__.py > /tmp/panda_factor.log 2>&1 &
-        # 第5步：启动 panda_quantflow 服务
+        # 第6步：启动 panda_quantflow 服务
         - name: start-panda-quantflow
           script: |
             . /opt/venv/bin/activate
