@@ -6,12 +6,19 @@ $:
         - vscode
         - docker
       stages:
-        # 第1步：从 GitHub 拉取最新代码
+        # 第1步：从 GitHub 拉取最新代码并恢复数据备份
         - name: sync-from-github
           script: |
             git remote add github https://github.com/jack99xu/panda_quantflow.git 2>/dev/null || true
             git fetch github main
             git reset --hard github/main
+            # 从 origin/data-backup 分支恢复数据备份（如有）
+            git fetch origin data-backup 2>/dev/null || true
+            if git rev-parse --verify origin/data-backup >/dev/null 2>&1; then
+              echo "恢复 git 备份的 MongoDB 数据..."
+              mkdir -p /workspace/data/mongodb-dump
+              git archive --format=tar origin/data-backup data/ 2>/dev/null | tar -x -C /workspace 2>/dev/null || echo "备份分支无数据"
+            fi
         # 第2步：克隆/更新 panda_factor
         - name: setup-panda-factor
           script: |
@@ -79,19 +86,19 @@ $:
             pip install -q baostock
             cd /workspace
             python scripts/seed_backtest_data.py
-        # 第6步：备份 MongoDB 数据到 git
+        # 第6步：备份 MongoDB 数据到 git（独立分支 data-backup）
         - name: backup-mongodb-to-git
           script: |
             . /opt/venv/bin/activate
             echo "备份 MongoDB 数据..."
             mkdir -p /workspace/data/mongodb-dump
             mongodump --host 127.0.0.1:27017 -u panda -p panda --authenticationDatabase admin --db panda --out /workspace/data/mongodb-dump 2>&1
-            echo "提交数据到 git..."
+            echo "提交数据到 git（data-backup 分支）..."
             cd /workspace
             git add data/mongodb-dump/
             git diff --cached --quiet || {
-              git commit -m "chore: update mongodb backup [skip ci]"
-              git push origin main 2>&1 || echo "推送失败（可能无权限，不影响后续流程）"
+              git commit -m "chore: update mongodb backup"
+              git push origin HEAD:data-backup --force 2>&1 || echo "推送失败（不影响后续流程）"
             }
             echo "备份完成"
         # 第8步：启动 panda_factor 服务
