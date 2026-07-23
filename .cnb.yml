@@ -76,7 +76,7 @@ $:
             . /opt/venv/bin/activate
             pip install -q baostock
             cd /workspace
-            python scripts/seed_backtest_data.py
+            python -u scripts/seed_backtest_data.py
         # 第6步：备份 MongoDB 数据到 git（独立分支 data-backup）
         - name: backup-mongodb-to-git
           script: |
