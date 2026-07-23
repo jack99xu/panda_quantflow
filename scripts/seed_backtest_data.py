@@ -9,7 +9,6 @@ import os
 import sys
 import time
 import traceback
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 MONGO_HOST = os.getenv("MONGO_URI", "127.0.0.1:27017")
 MONGO_USER = os.getenv("MONGO_USER", "panda")
@@ -28,8 +27,6 @@ INDEX_LIST = [
     ("000500", "中证500"),
     ("001000", "中证1000"),
 ]
-
-DOWNLOAD_WORKERS = 10  # 并行下载线程数
 
 
 def get_symbol(code):
@@ -73,31 +70,6 @@ def build_doc(row, symbol, code):
         }
     except (ValueError, TypeError, IndexError):
         return None
-
-
-def download_stock(args):
-    """下载单只股票从 start 到 END_DATE 的日线，返回 (symbol, name, docs, error)"""
-    symbol, name, code, start = args
-    try:
-        bs_code = get_bs_code(code)
-        rs = bs.query_history_k_data_plus(
-            bs_code,
-            "date,code,open,high,low,close,preclose,volume,amount",
-            start, END_DATE,
-            frequency="d",
-            adjustflag="2",
-        )
-        rows = []
-        while rs.next():
-            row = rs.get_row_data()
-            if row[0] is not None:
-                rows.append(row)
-    except Exception as e:
-        return (symbol, name, [], str(e))
-
-    docs = [build_doc(r, symbol, code) for r in rows]
-    docs = [d for d in docs if d is not None]
-    return (symbol, name, docs, None)
 
 
 def update_trade_calendar(db):
@@ -225,9 +197,8 @@ def main():
             db.stock_info_new.insert_many(new_idx_info, ordered=False)
             print(f"   √ 新增 {len(new_idx_info)} 只指数到 stock_info_new")
 
-        # 5. 批量并行下载股票日线
-        print(f"\n[5/5] 并行下载股票日线（{DOWNLOAD_WORKERS} 线程）...")
-        # 确定哪些股票需要下载
+        # 5. 批量顺序下载股票日线（baostock 非线程安全，不能并行）
+        print(f"\n[5/5] 顺序下载股票日线...")
         to_download = []
         for raw_code, code_name, trade_status in all_stocks:
             if trade_status != "1":
@@ -235,51 +206,58 @@ def main():
             symbol = get_symbol(raw_code)
             latest = db.stock_market.find_one({"symbol": symbol}, sort=[("date", -1)])
             if latest and latest["date"] >= END_DATE_C:
-                continue  # 已是最新
+                continue
             start = START_DATE if not latest else latest["date"]
             to_download.append((symbol, code_name or raw_code, raw_code, start))
 
         total = len(to_download)
-        print(f"   需下载: {total} 只（跳过已补齐的）")
+        print(f"   需下载: {total} 只")
+        if total == 0:
+            print("   - 全部已最新")
+        else:
+            stock_filled = 0
+            t0 = last_print = time.time()
+            for idx, (symbol, name, code, start) in enumerate(to_download, 1):
+                try:
+                    bs_code = get_bs_code(code)
+                    rs = bs.query_history_k_data_plus(
+                        bs_code,
+                        "date,code,open,high,low,close,preclose,volume,amount",
+                        start, END_DATE,
+                        frequency="d",
+                        adjustflag="2",
+                    )
+                    rows = []
+                    while rs.next():
+                        row = rs.get_row_data()
+                        if row[0] is not None:
+                            rows.append(row)
 
-        stock_filled = 0
-        done = 0
-        t0 = time.time()
+                    if rows:
+                        docs = [build_doc(r, symbol, code) for r in rows]
+                        docs = [d for d in docs if d is not None]
 
-        if total > 0:
-            with ThreadPoolExecutor(max_workers=DOWNLOAD_WORKERS) as pool:
-                fut_map = {pool.submit(download_stock, t): t for t in to_download}
-                for fut in as_completed(fut_map):
-                    task = fut_map[fut]
-                    symbol, name, docs, err = fut.result()
-                    done += 1
-
-                    if err:
-                        print(f"   × [{done}/{total}] {symbol} ({name}) 失败: {err}")
-                        continue
-
-                    if docs:
-                        # 过滤已存在的日期
-                        existing_dates = set()
-                        for d in db.stock_market.find({"symbol": symbol}, {"date": 1, "_id": 0}):
-                            existing_dates.add(d["date"])
-                        new_docs = [d for d in docs if d["date"] not in existing_dates]
-
-                        if new_docs:
-                            try:
+                        if docs:
+                            existing = set()
+                            for d in db.stock_market.find({"symbol": symbol}, {"date": 1, "_id": 0}):
+                                existing.add(d["date"])
+                            new_docs = [d for d in docs if d["date"] not in existing]
+                            if new_docs:
                                 db.stock_market.insert_many(new_docs, ordered=False)
                                 stock_filled += len(new_docs)
-                            except Exception as e:
-                                print(f"   × [{done}/{total}] {symbol} 写入失败: {e}")
 
-                    # 进度显示
-                    if done % 100 == 0 or done == total:
-                        elapsed = time.time() - t0
-                        rate = done / elapsed if elapsed > 0 else 0
-                        print(f"   √ [{done}/{total}] 已新增 {stock_filled} 条 | "
-                              f"{rate:.0f} 只/秒")
-        else:
-            print(f"   - 全部股票已是最新，无需下载")
+                except Exception as e:
+                    pass  # 部分股票无数据或失败，跳过
+
+                # 每 50 只或 30 秒打一次进度，防止 pipeline 超时 kill
+                now = time.time()
+                if idx % 50 == 0 or idx == total or (now - last_print) > 25:
+                    elapsed = now - t0
+                    rate = idx / elapsed if elapsed > 0 else 0
+                    eta = (total - idx) / rate if rate > 0 else 0
+                    print(f"   √ [{idx}/{total}] +{stock_filled} 条 | "
+                          f"{rate:.1f} 只/秒 | 预计剩余 {eta:.0f}s")
+                    last_print = now
 
         # 6. 下载指数日线
         print(f"\n  下载指数日线...")
