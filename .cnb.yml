@@ -66,6 +66,12 @@ $:
             fi
             for i in 1 2 3 4 5; do mongosh --quiet --eval "db.runCommand({ping:1})" 2>/dev/null && break; sleep 1; done
             echo "MongoDB 就绪"
+            # 从 git 备份恢复（如有）
+            if [ -d /workspace/data/mongodb-dump ]; then
+              echo "从 git 备份恢复 MongoDB 数据..."
+              mongorestore --drop --host 127.0.0.1:27017 -u panda -p panda --authenticationDatabase admin --nsInclude 'panda.*' /workspace/data/mongodb-dump 2>&1 || true
+              echo "恢复完成"
+            fi
         # 第5步：预加载回测行情数据
         - name: seed-backtest-data
           script: |
@@ -73,13 +79,28 @@ $:
             pip install -q baostock
             cd /workspace
             python scripts/seed_backtest_data.py
-        # 第6步：启动 panda_factor 服务
+        # 第6步：备份 MongoDB 数据到 git
+        - name: backup-mongodb-to-git
+          script: |
+            . /opt/venv/bin/activate
+            echo "备份 MongoDB 数据..."
+            mkdir -p /workspace/data/mongodb-dump
+            mongodump --host 127.0.0.1:27017 -u panda -p panda --authenticationDatabase admin --db panda --out /workspace/data/mongodb-dump 2>&1
+            echo "提交数据到 git..."
+            cd /workspace
+            git add data/mongodb-dump/
+            git diff --cached --quiet || {
+              git commit -m "chore: update mongodb backup [skip ci]"
+              git push origin main 2>&1 || echo "推送失败（可能无权限，不影响后续流程）"
+            }
+            echo "备份完成"
+        # 第8步：启动 panda_factor 服务
         - name: start-panda-factor
           script: |
             . /opt/venv/bin/activate
             cd /workspace/panda_factor
             nohup python panda_factor_server/panda_factor_server/__main__.py > /tmp/panda_factor.log 2>&1 &
-        # 第7步：启动 panda_quantflow 服务
+        # 第9步：启动 panda_quantflow 服务
         - name: start-panda-quantflow
           script: |
             # 修复前端 API 地址（cnb 上用相对路径）
@@ -89,7 +110,7 @@ $:
             nohup python src/panda_server/main.py > /tmp/quantflow.log 2>&1 &
             sleep 3
             echo "服务已启动，监听端口 8000"
-        # 第8步：dump 诊断信息到项目目录
+        # 第10步：dump 诊断信息到项目目录
         - name: dump-diagnostics
           script: |
             . /opt/venv/bin/activate
