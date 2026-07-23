@@ -90,3 +90,9 @@ $:
             nohup python src/panda_server/main.py > /tmp/quantflow.log 2>&1 &
             sleep 3
             echo "服务已启动，监听端口 8000"
+        # 第8步：dump 诊断信息到项目目录
+        - name: dump-diagnostics
+          script: |
+            . /opt/venv/bin/activate
+            cd /workspace
+            python scripts/dump_diagnostics.py
