@@ -20,6 +20,7 @@ from panda_server.routes import (
 )
 from starlette.staticfiles import StaticFiles
 from pathlib import Path
+from fastapi.responses import FileResponse, HTMLResponse
 
 from panda_server.routes.trading import (
     trading_routes,
@@ -110,6 +111,15 @@ mimetypes.add_type("text/css", ".css")
 mimetypes.add_type("application/javascript", ".js")
 app.mount("/quantflow", StaticFiles(directory=frontend_folder, html=True), name="quantflow")
 app.mount("/charts", StaticFiles(directory=frontend_folder, html=True), name="charts")
+
+# SPA 回退：/quantflow/* 和 /charts/* 下找不到资源的路径返回 index.html
+@app.get("/quantflow/{full_path:path}")
+@app.get("/charts/{full_path:path}")
+async def quantflow_spa(full_path: str):
+    index_file = frontend_folder / "index.html"
+    if index_file.exists():
+        return FileResponse(str(index_file))
+    return HTMLResponse(status_code=404)
 
 # Configure CORS
 app.add_middleware(
