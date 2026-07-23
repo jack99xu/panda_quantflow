@@ -179,14 +179,15 @@ def main():
         # 3. 获取完整 A 股列表
         print("\n[3/5] 获取 A 股列表...")
         rs = bs.query_all_stock(END_DATE)
+        print(f"   baostock 字段: {rs.fields}")
         all_stocks = []
         while rs.next():
             row = rs.get_row_data()
-            code = row[0]       # sh.600000 或 sz.000001
-            code_name = row[1]  # 股票名称
-            status = row[2]     # 1=正常交易
-            raw_code = code.split(".")[1] if "." in code else code
-            all_stocks.append((raw_code, code_name, status))
+            # baostock query_all_stock 返回: [code, tradeStatus, code_name, ipoDate]
+            raw_code = row[0].split(".")[1] if "." in row[0] else row[0]
+            trade_status = row[1]  # "1"=正常交易
+            code_name = row[2]     # 股票中文名
+            all_stocks.append((raw_code, code_name, trade_status))
         print(f"   baostock 返回 {len(all_stocks)} 只股票")
 
         # 4. 更新 stock_info_new（只插入新股票，不覆盖已有）
@@ -196,11 +197,11 @@ def main():
             existing_symbols.add(s["symbol"])
 
         new_info = []
-        for raw_code, code_name, status in all_stocks:
+        for raw_code, code_name, trade_status in all_stocks:
             if not code_name or code_name == "":
                 code_name = raw_code
             symbol = get_symbol(raw_code)
-            if symbol not in existing_symbols and status == "1":
+            if symbol not in existing_symbols and trade_status == "1":
                 new_info.append({"symbol": symbol, "name": code_name, "type": 0})
                 existing_symbols.add(symbol)
 
@@ -228,8 +229,8 @@ def main():
         print(f"\n[5/5] 并行下载股票日线（{DOWNLOAD_WORKERS} 线程）...")
         # 确定哪些股票需要下载
         to_download = []
-        for raw_code, code_name, status in all_stocks:
-            if status != "1":
+        for raw_code, code_name, trade_status in all_stocks:
+            if trade_status != "1":
                 continue
             symbol = get_symbol(raw_code)
             latest = db.stock_market.find_one({"symbol": symbol}, sort=[("date", -1)])
