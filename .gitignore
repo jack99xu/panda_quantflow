@@ -175,4 +175,4 @@ user_data/*
 
 # only development team files
 .dev.README.md
-.drafts/
+.drafts/requirements-all.txt
