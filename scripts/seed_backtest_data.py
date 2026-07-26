@@ -230,12 +230,13 @@ def main():
                 now = time.time()
                 print(f"      已扫描 {i}/{len(all_stocks)}（{now - build_t0:.0f}s），待下载: {len(to_download)}")
 
-        total = len(to_download)
-        if total > DOWNLOAD_BATCH:
-            remaining = total - DOWNLOAD_BATCH
+        total_raw = len(to_download)
+        if total_raw > DOWNLOAD_BATCH:
+            remaining = total_raw - DOWNLOAD_BATCH
             to_download = to_download[:DOWNLOAD_BATCH]
             print(f"   ⚠ 分批模式: 本次仅下载前 {DOWNLOAD_BATCH} 只（剩余 {remaining} 只下次补）")
-        print(f"   需下载: {len(to_download)} 只（构建耗时 {time.time() - build_t0:.0f}s）")
+        total = len(to_download)
+        print(f"   需下载: {total} 只（构建耗时 {time.time() - build_t0:.0f}s）")
         if total == 0:
             print("   - 全部已最新")
         else:
@@ -252,16 +253,15 @@ def main():
                         adjustflag="2",
                     )
                     rows = []
-                    # 调试: 前 3 只打印查询结果
-                    debug_rs = idx <= 3
+                    debug_rs = idx <= 10
                     if debug_rs:
-                        print(f"   DEBUG[{symbol}] bs_code={bs_code} error={rs.error_code} {rs.error_msg}")
+                        print(f"   DBG[{symbol}] code={code} bs={bs_code} err={rs.error_code} {rs.error_msg} start={start}", end="")
                     while rs.next():
                         row = rs.get_row_data()
                         if row[0] is not None:
                             rows.append(row)
-                    if debug_rs and rows:
-                        print(f"   DEBUG[{symbol}] rows={len(rows)} 首行={rows[0] if rows else '空'}")
+                    if debug_rs:
+                        print(f" rows={len(rows)}", end="")
 
                     if rows:
                         docs = [build_doc(r, symbol, code) for r in rows]
@@ -272,9 +272,17 @@ def main():
                             for d in db.stock_market.find({"symbol": symbol}, {"date": 1, "_id": 0}):
                                 existing.add(d["date"])
                             new_docs = [d for d in docs if d["date"] not in existing]
+                            if debug_rs:
+                                print(f" existing={len(existing)} new={len(new_docs)}")
+                            else:
+                                print()
                             if new_docs:
                                 db.stock_market.insert_many(new_docs, ordered=False)
                                 stock_filled += len(new_docs)
+                        elif debug_rs:
+                            print(f" docs_empty")
+                    elif debug_rs:
+                        print(f" rows_empty")
 
                 except Exception as e:
                     print(f"   × {symbol} 异常: {e}")
