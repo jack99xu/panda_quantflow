@@ -274,15 +274,11 @@ def main():
                           f"{rate:.1f} 只/秒 | 预计剩余 {eta:.0f}s")
                     last_print = now
 
-        # 6. 下载指数日线
+        # 6. 下载指数日线（全量下载，覆盖补齐，4 只指数很快）
         print(f"\n  下载指数日线...")
         idx_filled = 0
         for code, name in INDEX_LIST:
             symbol = f"{code}.SH"
-            latest = db.index_daily_price.find_one({"symbol": symbol}, sort=[("date", -1)])
-            if latest and latest["date"] >= END_DATE_C:
-                print(f"   - {symbol} ({name}) 已最新")
-                continue
 
             sym, n, docs, err = download_index_kline(code, name)
             if err:
