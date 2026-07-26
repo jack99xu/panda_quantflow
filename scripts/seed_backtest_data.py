@@ -17,7 +17,9 @@ MONGO_AUTH = os.getenv("MONGO_AUTH_DB", "admin")
 MONGO_DB = os.getenv("MONGO_DB", "panda")
 
 # 测试模式：限制下载股票数（0=不限，用于快速验证 pipeline 全流程）
-TEST_LIMIT = 0
+# 每批最多下载多少只股票（防 pipeline 2h 超时，每次部署增量下载）
+# 500 只 ≈ 9 分钟（0.9 只/秒），留下足够时间给索引/日历/备份
+DOWNLOAD_BATCH = 500
 
 START_DATE = "2020-01-01"
 END_DATE = "2026-07-22"
@@ -229,11 +231,11 @@ def main():
                 print(f"      已扫描 {i}/{len(all_stocks)}（{now - build_t0:.0f}s），待下载: {len(to_download)}")
 
         total = len(to_download)
-        if TEST_LIMIT > 0 and total > TEST_LIMIT:
-            to_download = to_download[:TEST_LIMIT]
-            total = TEST_LIMIT
-            print(f"   ⚠ 测试模式: 仅下载前 {TEST_LIMIT} 只")
-        print(f"   需下载: {total} 只（构建耗时 {time.time() - build_t0:.0f}s）")
+        if total > DOWNLOAD_BATCH:
+            remaining = total - DOWNLOAD_BATCH
+            to_download = to_download[:DOWNLOAD_BATCH]
+            print(f"   ⚠ 分批模式: 本次仅下载前 {DOWNLOAD_BATCH} 只（剩余 {remaining} 只下次补）")
+        print(f"   需下载: {len(to_download)} 只（构建耗时 {time.time() - build_t0:.0f}s）")
         if total == 0:
             print("   - 全部已最新")
         else:
