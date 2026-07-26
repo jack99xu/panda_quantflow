@@ -19,7 +19,7 @@ MONGO_DB = os.getenv("MONGO_DB", "panda")
 # 测试模式：限制下载股票数（0=不限，用于快速验证 pipeline 全流程）
 # 每批最多下载多少只股票（防 pipeline 2h 超时，每次部署增量下载）
 # 500 只 ≈ 9 分钟（0.9 只/秒），留下足够时间给索引/日历/备份
-DOWNLOAD_BATCH = 500
+DOWNLOAD_BATCH = 0
 
 # 强制重下载列表（环境变量 FORCE_SYMBOLS="000001.SZ,600000.SH"）
 # 这些标的即使已有数据也会重新下载（用于修复数据不完整的问题）
@@ -109,7 +109,7 @@ def download_index_kline(code, name):
             "date,code,open,high,low,close,preclose,volume,amount",
             START_DATE, END_DATE,
             frequency="d",
-            adjustflag="2",
+            adjustflag="1",
         )
         docs = []
         while rs.next():
@@ -277,7 +277,7 @@ def main():
                         "date,code,open,high,low,close,preclose,volume,amount",
                         start, END_DATE,
                         frequency="d",
-                        adjustflag="2",
+                        adjustflag="1",
                     )
                     rows = []
                     while rs.next():
