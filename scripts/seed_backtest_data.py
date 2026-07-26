@@ -416,7 +416,8 @@ def seed_dividends(db):
     collection = db.stock_dividends
     t0 = time.time()
     filled = 0
-    years = range(2020, 2027)
+    # 只查回测期内的分红（2020-2022），减少 baostock 请求量
+    years = range(2020, 2023)
 
     # 从 stock_market 获取已存在的全部去重 symbol
     known_symbols = set(db.stock_market.distinct("symbol"))
@@ -424,7 +425,10 @@ def seed_dividends(db):
         print(f"    stock_market 无数据，跳过分红")
         return 0
 
-    for symbol in sorted(known_symbols):
+    total = len(known_symbols)
+    for idx, symbol in enumerate(sorted(known_symbols), 1):
+        if idx % 500 == 0 or idx == 1:
+            print(f"      进度 {idx}/{total}，已查 {filled} 条分红...")
         # 转换 symbol → baostock code（"000001.SZ" → "sz.000001"）
         parts = symbol.rsplit(".", 1)
         if len(parts) != 2:
