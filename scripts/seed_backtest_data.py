@@ -492,10 +492,16 @@ def seed_dividends(db):
     elapsed = time.time() - t0
     print(f"    √ {filled} 条分红记录 | 耗时 {elapsed:.1f}s")
 
-    # 打印一条示例用于验证格式
-    example = collection.find_one({"symbol": "600000.SH", "ex_div_date": {"$regex": "^2022"}}, sort=[("ex_div_date", -1)])
+    # 诊断：检查写入结果
+    total = collection.count_documents({})
+    sym_count = collection.count_documents({"symbol": "600000.SH"})
+    example = collection.find_one({"symbol": "600000.SH"})
+    print(f"    📊 stock_dividends 总量={total}, 600000.SH 条数={sym_count}")
     if example:
-        print(f"    📄 600000.SH 示例: {example}")
+        ex_div = example.get("ex_div_date")
+        print(f"    📄 示例: symbol=600000.SH, ex_div_date={ex_div!r}, type={type(ex_div).__name__}")
+    else:
+        print(f"    ⚠ stock_dividends 中没有 600000.SH 的任何记录!")
     return filled
 
 

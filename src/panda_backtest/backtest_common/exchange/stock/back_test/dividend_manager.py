@@ -50,6 +50,22 @@ class DividendManager(object):
         sr_logger.info(f"[DIVDIAG] 查询 stock_dividends 返回 {len(results)} 条, query={{symbol: {list(all_pos_set)}, ex_div_date: {trade_date_val!r}}}")
         for r in results:
             sr_logger.info(f"[DIVDIAG]   → 匹配: {r}")
+
+        # 额外诊断：直接查 stock_dividends 确认数据是否存在
+        if len(results) == 0 and '600000.SH' in all_pos_set:
+            try:
+                db = self.quotation_mongo_db.get_mongo_db(config["MONGO_DB"])
+                total = db.stock_dividends.count_documents({})
+                sym600 = db.stock_dividends.count_documents({"symbol": "600000.SH"})
+                any600 = db.stock_dividends.find_one({"symbol": "600000.SH"})
+                sr_logger.info(f"[DIVDIAG] stock_dividends 总量={total}, 600000.SH 条数={sym600}")
+                if any600:
+                    sr_logger.info(f"[DIVDIAG] 600000.SH 任一条: ex_div_date={any600.get('ex_div_date')!r}, type={type(any600.get('ex_div_date')).__name__}")
+                else:
+                    sr_logger.info(f"[DIVDIAG] stock_dividends 中无 600000.SH 记录")
+            except Exception as e:
+                sr_logger.info(f"[DIVDIAG] 直接查询异常: {e}")
+
         for dividend_dict in results:
             dividend = Dividend()
             dividend.__dict__ = dividend_dict
