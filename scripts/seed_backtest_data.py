@@ -445,6 +445,8 @@ def seed_dividends(db):
                 rs = bs.query_dividend_data(code=bs_code, year=str(year), yearType="operate")
                 if rs.error_code != "0":
                     continue
+                if symbol == "600000.SH" and year == 2021:
+                    print(f"     🔍 baostock 字段名: {rs.fields}")
                 while rs.next():
                     row = rs.get_row_data()
                     if row is None or len(row) < 1:
@@ -453,6 +455,12 @@ def seed_dividends(db):
                     #   dividPlanDate, dividRegistDate, dividOperateDate, dividPayDate,
                     #   dividStockMarketDate, dividCashPsBeforeTax, dividCashPsAfterTax,
                     #   dividStocksPs, dividCashStock, dividReserveToStockPs
+                    # 诊断 600000.SH 20220721 分红的原始 row
+                    if symbol == "600000.SH" and len(row) > 6:
+                        raw_op = row[6]
+                        if raw_op and "2022-07-21" in raw_op:
+                            print(f"     🔍 600000.SH 原始 row (len={len(row)}): {row}")
+                            print(f"     🔍 fields: dividOperateDate={row[6]}, dividCashPsBeforeTax={row[9] if len(row)>9 else 'N/A'}, dividCashPsAfterTax={row[10] if len(row)>10 else 'N/A'}, dividStocksPs={row[11] if len(row)>11 else 'N/A'}, dividReserveToStockPs={row[13] if len(row)>13 else 'N/A'}")
                     op_date = row[6] if len(row) > 6 else ""
                     cash_after_tax = row[10] if len(row) > 10 else ""
                     stocks_ps = row[11] if len(row) > 11 else ""
