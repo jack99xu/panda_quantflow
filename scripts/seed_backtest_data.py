@@ -42,8 +42,12 @@ INDEX_LIST = [
 ]
 
 
-def get_symbol(code):
-    return f"{code}.SH" if code.startswith("6") else f"{code}.SZ"
+def get_symbol(code, exchange="sz"):
+    """根据 baostock 的交易所前缀生成标准 symbol
+    exchange: 'sh' 或 'sz'（来自 baostock code 的 sh.xxxx / sz.xxxx 前缀）
+    """
+    exch_map = {"sh": "SH", "sz": "SZ"}
+    return f"{code}.{exch_map.get(exchange, 'SZ')}"
 
 
 def wait_mongo(max_retries=30):
@@ -184,7 +188,7 @@ def main():
         for raw_code, exchange, code_name, trade_status in all_stocks:
             if not code_name or code_name == "":
                 code_name = raw_code
-            symbol = get_symbol(raw_code)
+            symbol = get_symbol(raw_code, exchange)
             if symbol not in existing_symbols and trade_status == "1":
                 new_info.append({"symbol": symbol, "name": code_name, "type": 0})
                 existing_symbols.add(symbol)
@@ -222,7 +226,7 @@ def main():
         if FORCE_SYMBOLS:
             print(f"   - 预取强制重下载标的: {FORCE_SYMBOLS}")
             for raw_code, exchange, code_name, trade_status in all_stocks:
-                symbol = get_symbol(raw_code)
+                symbol = get_symbol(raw_code, exchange)
                 if symbol in FORCE_SYMBOLS and trade_status == "1":
                     force_list.append((symbol, code_name or raw_code, raw_code, exchange, START_DATE))
                     print(f"      √ {symbol} → 强制重下载")
@@ -236,7 +240,7 @@ def main():
         for i, (raw_code, exchange, code_name, trade_status) in enumerate(all_stocks, 1):
             if trade_status != "1":
                 continue
-            symbol = get_symbol(raw_code)
+            symbol = get_symbol(raw_code, exchange)
             if symbol in FORCE_SYMBOLS:
                 # 已提前处理，跳过
                 continue
