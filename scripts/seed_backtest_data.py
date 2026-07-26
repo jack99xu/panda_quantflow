@@ -469,7 +469,8 @@ def seed_dividends(db):
                             print(f"     🔍 600000.SH 原始 row (len={len(row)}): {row}")
                             print(f"     🔍 fields: dividOperateDate={row[6]}, dividCashPsBeforeTax={row[9] if len(row)>9 else 'N/A'}, dividCashPsAfterTax={row[10] if len(row)>10 else 'N/A'}, dividStocksPs={row[11] if len(row)>11 else 'N/A'}, dividReserveToStockPs={row[13] if len(row)>13 else 'N/A'}")
                     op_date = row[6] if len(row) > 6 else ""
-                    cash_after_tax = row[10] if len(row) > 10 else ""
+                    # 使用 dividCashPsBeforeTax（税前每股），因为 after_tax 字段是 "0.369或0.41" 这种不可 parse 的字符串
+                    cash_before_tax = row[9] if len(row) > 9 else ""
                     stocks_ps = row[11] if len(row) > 11 else ""
                     reserve_ps = row[13] if len(row) > 13 else ""
 
@@ -491,7 +492,7 @@ def seed_dividends(db):
                     doc = {
                         "symbol": symbol,
                         "ex_div_date": ex_div_date_str,
-                        "unit_cash_div_tax": _f(cash_after_tax),
+                        "unit_cash_div_tax": _f(cash_before_tax),
                         "share_trans_ratio": _f(reserve_ps),
                         "share_ratio": _f(stocks_ps),
                     }
@@ -516,7 +517,8 @@ def seed_dividends(db):
     print(f"    📊 stock_dividends 总量={total}, 600000.SH 条数={sym_count}")
     if example:
         ex_div = example.get("ex_div_date")
-        print(f"    📄 示例: symbol=600000.SH, ex_div_date={ex_div!r}, type={type(ex_div).__name__}")
+        cash_val = example.get("unit_cash_div_tax")
+        print(f"    📄 示例: symbol=600000.SH, ex_div_date={ex_div!r}, type={type(ex_div).__name__}, unit_cash_div_tax={cash_val}")
     else:
         print(f"    ⚠ stock_dividends 中没有 600000.SH 的任何记录!")
     return filled
