@@ -34,7 +34,7 @@ def start(back_test_id:str,code:str,start_date:str,end_date:str, start_capital: 
                       'commission_rate': commission_rate,
                       'slippage': 0,
                       'frequency': frequency,
-                      'matching_type': 1,  # 0：bar收盘，1：bar开盘
+                      'matching_type': 0,  # 0：bar收盘，1：bar开盘
                       'run_type': 1,
                       'back_test_id': back_test_id,
                       'mock_id': '100',
