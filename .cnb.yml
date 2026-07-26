@@ -70,7 +70,7 @@ $:
               # 解压 bson.gz（若有），git 限制 256M 单文件必须压缩
               if ls /workspace/data/mongodb-dump/panda/*.bson.gz 2>/dev/null; then
                 echo "  解压 bson.gz..."
-                gzip -d /workspace/data/mongodb-dump/panda/*.bson.gz
+                gzip -d -f /workspace/data/mongodb-dump/panda/*.bson.gz 2>/dev/null || true
               fi
               mongorestore --drop --host 127.0.0.1:27017 -u panda -p panda --authenticationDatabase admin --nsInclude 'panda.*' /workspace/data/mongodb-dump 2>&1 || true
               echo "恢复完成"
