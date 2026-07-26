@@ -38,10 +38,6 @@ def get_symbol(code):
     return f"{code}.SH" if code.startswith("6") else f"{code}.SZ"
 
 
-def get_bs_code(code):
-    return f"sh.{code}" if code.startswith("6") else f"sz.{code}"
-
-
 def wait_mongo(max_retries=30):
     uri = f"mongodb://{MONGO_USER}:{MONGO_PASS}@{MONGO_HOST}/{MONGO_AUTH}"
     for i in range(max_retries):
@@ -161,10 +157,13 @@ def main():
         while rs.next():
             row = rs.get_row_data()
             # baostock query_all_stock 返回: [code, tradeStatus, code_name, ipoDate]
-            raw_code = row[0].split(".")[1] if "." in row[0] else row[0]
+            # code 格式如 sh.600000 或 sz.000001，必须保留交易所前缀！
+            parts = row[0].split(".")
+            exchange = parts[0] if len(parts) == 2 else "sz"  # sh / sz
+            raw_code = parts[1] if len(parts) == 2 else row[0]
             trade_status = row[1]  # "1"=正常交易
             code_name = row[2]     # 股票中文名
-            all_stocks.append((raw_code, code_name, trade_status))
+            all_stocks.append((raw_code, exchange, code_name, trade_status))
         print(f"   baostock 返回 {len(all_stocks)} 只股票")
 
         # 4. 更新 stock_info_new（只插入新股票，不覆盖已有）
@@ -174,7 +173,7 @@ def main():
             existing_symbols.add(s["symbol"])
 
         new_info = []
-        for raw_code, code_name, trade_status in all_stocks:
+        for raw_code, exchange, code_name, trade_status in all_stocks:
             if not code_name or code_name == "":
                 code_name = raw_code
             symbol = get_symbol(raw_code)
@@ -213,7 +212,7 @@ def main():
         print("   - 构建待下载列表（每 500 只打一次进度）...")
         to_download = []
         build_t0 = time.time()
-        for i, (raw_code, code_name, trade_status) in enumerate(all_stocks, 1):
+        for i, (raw_code, exchange, code_name, trade_status) in enumerate(all_stocks, 1):
             if trade_status != "1":
                 continue
             symbol = get_symbol(raw_code)
@@ -225,7 +224,7 @@ def main():
                 start = f"{d[:4]}-{d[4:6]}-{d[6:8]}"
             else:
                 start = START_DATE
-            to_download.append((symbol, code_name or raw_code, raw_code, start))
+            to_download.append((symbol, code_name or raw_code, raw_code, exchange, start))
             if i % 500 == 0:
                 now = time.time()
                 print(f"      已扫描 {i}/{len(all_stocks)}（{now - build_t0:.0f}s），待下载: {len(to_download)}")
@@ -242,9 +241,9 @@ def main():
         else:
             stock_filled = 0
             t0 = last_print = time.time()
-            for idx, (symbol, name, code, start) in enumerate(to_download, 1):
+            for idx, (symbol, name, code, exchange, start) in enumerate(to_download, 1):
                 try:
-                    bs_code = get_bs_code(code)
+                    bs_code = f"{exchange}.{code}"
                     rs = bs.query_history_k_data_plus(
                         bs_code,
                         "date,code,open,high,low,close,preclose,volume,amount",
@@ -253,15 +252,10 @@ def main():
                         adjustflag="2",
                     )
                     rows = []
-                    debug_rs = idx <= 10
-                    if debug_rs:
-                        print(f"   DBG[{symbol}] code={code} bs={bs_code} err={rs.error_code} {rs.error_msg} start={start}", end="")
                     while rs.next():
                         row = rs.get_row_data()
                         if row[0] is not None:
                             rows.append(row)
-                    if debug_rs:
-                        print(f" rows={len(rows)}", end="")
 
                     if rows:
                         docs = [build_doc(r, symbol, code) for r in rows]
@@ -272,17 +266,9 @@ def main():
                             for d in db.stock_market.find({"symbol": symbol}, {"date": 1, "_id": 0}):
                                 existing.add(d["date"])
                             new_docs = [d for d in docs if d["date"] not in existing]
-                            if debug_rs:
-                                print(f" existing={len(existing)} new={len(new_docs)}")
-                            else:
-                                print()
                             if new_docs:
                                 db.stock_market.insert_many(new_docs, ordered=False)
                                 stock_filled += len(new_docs)
-                        elif debug_rs:
-                            print(f" docs_empty")
-                    elif debug_rs:
-                        print(f" rows_empty")
 
                 except Exception as e:
                     print(f"   × {symbol} 异常: {e}")
