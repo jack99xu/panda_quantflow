@@ -415,6 +415,14 @@ def seed_dividends(db):
     collection = db.stock_dividends
     t0 = time.time()
     filled = 0
+
+    # 检查是否已有完整数据（包括正确的现金字段），备份恢复后直接跳过
+    key_record = collection.find_one({"symbol": "600000.SH", "ex_div_date": "20220721"})
+    if key_record and key_record.get("unit_cash_div_tax", 0) != 0:
+        total_before = collection.count_documents({})
+        print(f"    stock_dividends 已有 {total_before} 条（含 600000.SH 现金分红），跳过下载")
+        return total_before
+
     # 只查回测期内的分红（2020-2022），减少 baostock 请求量
     years = range(2020, 2023)
 
