@@ -459,9 +459,9 @@ def seed_dividends(db):
                     if not op_date or op_date == "":
                         continue
 
-                    # 除权除息日 YYYY-MM-DD → int YYYYMMDD
+                    # 除权除息日 YYYY-MM-DD → str YYYYMMDD（与 dividend_manager 查询格式一致）
                     try:
-                        ex_div_int = int(op_date.replace("-", ""))
+                        ex_div_date_str = op_date.replace("-", "")
                     except (ValueError, AttributeError):
                         continue
 
@@ -473,14 +473,14 @@ def seed_dividends(db):
 
                     doc = {
                         "symbol": symbol,
-                        "ex_div_date": ex_div_int,
+                        "ex_div_date": ex_div_date_str,
                         "unit_cash_div_tax": _f(cash_after_tax),
                         "share_trans_ratio": _f(reserve_ps),
                         "share_ratio": _f(stocks_ps),
                     }
                     # upsert 避免重复
                     collection.update_one(
-                        {"symbol": symbol, "ex_div_date": ex_div_int},
+                        {"symbol": symbol, "ex_div_date": ex_div_date_str},
                         {"$set": doc},
                         upsert=True,
                     )
