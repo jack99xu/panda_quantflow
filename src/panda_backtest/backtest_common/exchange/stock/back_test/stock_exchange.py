@@ -277,7 +277,7 @@ class StockExchange(object):
             if order.side == SIDE_BUY:
                 trade.cost = rate
             else:
-                trade.cost = rate + trade.price * trade.volume * 0.001
+                trade.cost = rate + trade.price * trade.volume * 0.0005
 
             # 推送委托数据
             self.work_order.remove_order(order.order_id)

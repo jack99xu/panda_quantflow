@@ -128,7 +128,7 @@ class StockOrderBuilder(object):
         if order_result.side == SIDE_BUY:
             order_result.transaction_cost = rate
         else:
-            order_result.transaction_cost = rate + order_result.price * order_result.quantity * 0.001
+            order_result.transaction_cost = rate + order_result.price * order_result.quantity * 0.0005
 
         return order_result
 
