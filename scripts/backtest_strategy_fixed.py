@@ -26,6 +26,7 @@ def initialize(context):
 
     # 调试标记
     context.debug_logged = False
+    context._warned_symbols = set()
 
     # DEBUG：打印参数
     print(f"[DEBUG] mom_lookback={context.mom_lookback}")
@@ -56,12 +57,12 @@ def handle_data(context, data):
         try:
             b = data[symbol]
         except Exception:
-            if symbol not in context.__dict__.setdefault("_warned_symbols", set()):
+            if symbol not in context._warned_symbols:
                 print(f"[DEBUG] {context.now} {symbol} data异常, 跳过")
                 context._warned_symbols.add(symbol)
             continue
         if b is None or b.close is None or b.close <= 0:
-            if symbol not in context.__dict__.setdefault("_warned_symbols", set()):
+            if symbol not in context._warned_symbols:
                 print(f"[DEBUG] {context.now} {symbol} close={getattr(b, 'close', None)}, 跳过")
                 context._warned_symbols.add(symbol)
             continue
