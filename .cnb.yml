@@ -67,6 +67,11 @@ $:
             # 从 git 备份恢复（如有）
             if [ -d /workspace/data/mongodb-dump ]; then
               echo "从 git 备份恢复 MongoDB 数据..."
+              # 解压 bson.gz（若有），git 限制 256M 单文件必须压缩
+              if ls /workspace/data/mongodb-dump/panda/*.bson.gz 2>/dev/null; then
+                echo "  解压 bson.gz..."
+                gzip -d /workspace/data/mongodb-dump/panda/*.bson.gz
+              fi
               mongorestore --drop --host 127.0.0.1:27017 -u panda -p panda --authenticationDatabase admin --nsInclude 'panda.*' /workspace/data/mongodb-dump 2>&1 || true
               echo "恢复完成"
             fi
@@ -84,6 +89,9 @@ $:
             echo "备份 MongoDB 数据..."
             mkdir -p /workspace/data/mongodb-dump
             mongodump --host 127.0.0.1:27017 -u panda -p panda --authenticationDatabase admin --db panda --out /workspace/data/mongodb-dump 2>&1
+            # 压缩 bson（stock_market.bson 超 1G，git 限制 256M）
+            echo "压缩 bson 文件..."
+            gzip -f /workspace/data/mongodb-dump/panda/*.bson
             echo "提交数据到 git（data-backup 分支）..."
             cd /workspace
             git add data/mongodb-dump/
