@@ -109,7 +109,7 @@ def download_index_kline(code, name):
             "date,code,open,high,low,close,preclose,volume,amount",
             START_DATE, END_DATE,
             frequency="d",
-            adjustflag="1",
+            adjustflag="3",
         )
         docs = []
         while rs.next():
@@ -277,13 +277,17 @@ def main():
                         "date,code,open,high,low,close,preclose,volume,amount",
                         start, END_DATE,
                         frequency="d",
-                        adjustflag="1",
+                        adjustflag="3",
                     )
                     rows = []
                     while rs.next():
                         row = rs.get_row_data()
                         if row[0] is not None:
                             rows.append(row)
+
+                    # 诊断：打印前2行原始数据
+                    if rows:
+                        print(f"     诊断 {symbol}: 字段={rs.fields}, 第1行={rows[0]}, 第2行={rows[1] if len(rows)>1 else 'N/A'}")
 
                     if rows:
                         docs = [build_doc(r, symbol, code) for r in rows]
