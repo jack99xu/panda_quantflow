@@ -21,6 +21,14 @@ MONGO_DB = os.getenv("MONGO_DB", "panda")
 # 500 只 ≈ 9 分钟（0.9 只/秒），留下足够时间给索引/日历/备份
 DOWNLOAD_BATCH = 500
 
+# 强制重下载列表（环境变量 FORCE_SYMBOLS="000001.SZ,600000.SH"）
+# 这些标的即使已有数据也会重新下载（用于修复数据不完整的问题）
+FORCE_SYMBOLS = set()
+_force = os.getenv("FORCE_SYMBOLS", "")
+if _force:
+    FORCE_SYMBOLS = set(s.strip() for s in _force.split(",") if s.strip())
+    print(f"   ⚠ 强制重下载标的: {FORCE_SYMBOLS}")
+
 START_DATE = "2020-01-01"
 END_DATE = "2026-07-22"
 END_DATE_C = "20260722"
@@ -209,6 +217,19 @@ def main():
         db.stock_market.create_index([("symbol", 1), ("date", -1)])
         db.index_daily_price.create_index("symbol")
 
+        # 强制重下载的标的提前处理（不受 DOWNLOAD_BATCH 限制）
+        force_list = []
+        if FORCE_SYMBOLS:
+            print(f"   - 预取强制重下载标的: {FORCE_SYMBOLS}")
+            for raw_code, exchange, code_name, trade_status in all_stocks:
+                symbol = get_symbol(raw_code)
+                if symbol in FORCE_SYMBOLS and trade_status == "1":
+                    force_list.append((symbol, code_name or raw_code, raw_code, exchange, START_DATE))
+                    print(f"      √ {symbol} → 强制重下载")
+            # 已处理的从列表中移除，避免后面重复计数
+            if force_list:
+                print()
+
         print("   - 构建待下载列表（每 500 只打一次进度）...")
         to_download = []
         build_t0 = time.time()
@@ -216,6 +237,9 @@ def main():
             if trade_status != "1":
                 continue
             symbol = get_symbol(raw_code)
+            if symbol in FORCE_SYMBOLS:
+                # 已提前处理，跳过
+                continue
             latest = db.stock_market.find_one({"symbol": symbol}, sort=[("date", -1)])
             if latest and latest["date"] >= END_DATE_C:
                 continue
@@ -229,11 +253,15 @@ def main():
                 now = time.time()
                 print(f"      已扫描 {i}/{len(all_stocks)}（{now - build_t0:.0f}s），待下载: {len(to_download)}")
 
+        # 强制重下载的标的插到最前面，确保不被批次截断
+        to_download = force_list + to_download
         total_raw = len(to_download)
-        if total_raw > DOWNLOAD_BATCH:
-            remaining = total_raw - DOWNLOAD_BATCH
-            to_download = to_download[:DOWNLOAD_BATCH]
-            print(f"   ⚠ 分批模式: 本次仅下载前 {DOWNLOAD_BATCH} 只（剩余 {remaining} 只下次补）")
+        force_count = len(force_list)
+        if total_raw - force_count > DOWNLOAD_BATCH:
+            remaining = (total_raw - force_count) - DOWNLOAD_BATCH
+            batch_end = DOWNLOAD_BATCH + force_count  # 保留 force 标的 + BATCH 个普通标的
+            to_download = to_download[:batch_end]
+            print(f"   ⚠ 分批模式: 本次下载 {len(force_list)} 强制 + {DOWNLOAD_BATCH} 增量（剩余 {remaining} 只下次补）")
         total = len(to_download)
         print(f"   需下载: {total} 只（构建耗时 {time.time() - build_t0:.0f}s）")
         if total == 0:
@@ -262,13 +290,19 @@ def main():
                         docs = [d for d in docs if d is not None]
 
                         if docs:
-                            existing = set()
-                            for d in db.stock_market.find({"symbol": symbol}, {"date": 1, "_id": 0}):
-                                existing.add(d["date"])
-                            new_docs = [d for d in docs if d["date"] not in existing]
-                            if new_docs:
-                                db.stock_market.insert_many(new_docs, ordered=False)
-                                stock_filled += len(new_docs)
+                            if symbol in FORCE_SYMBOLS:
+                                # 强制重下载：删除旧数据，全量写入
+                                db.stock_market.delete_many({"symbol": symbol})
+                                db.stock_market.insert_many(docs, ordered=False)
+                                stock_filled += len(docs)
+                            else:
+                                existing = set()
+                                for d in db.stock_market.find({"symbol": symbol}, {"date": 1, "_id": 0}):
+                                    existing.add(d["date"])
+                                new_docs = [d for d in docs if d["date"] not in existing]
+                                if new_docs:
+                                    db.stock_market.insert_many(new_docs, ordered=False)
+                                    stock_filled += len(new_docs)
 
                 except Exception as e:
                     print(f"   × {symbol} 异常: {e}")
