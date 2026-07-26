@@ -167,8 +167,14 @@ class StockExchange(object):
         if run_info.run_strategy_type == 0:
             bar_data_source = bar_dict.bar_data_source
             limit_price_obj = bar_data_source.get_stock_daily_bar(order.order_book_id, strategy_context.trade_date)
-            limit_up = limit_price_obj.limit_up
-            limit_down = limit_price_obj.limit_down
+            # DailyQuotationData 可能没有 limit_up/limit_down 字段（baostock 数据源不提供）
+            # 缺失时使用安全默认值：涨停不限制（99999），跌停不限制（0）
+            if limit_price_obj is None:
+                limit_up = 99999
+                limit_down = 0
+            else:
+                limit_up = getattr(limit_price_obj, 'limit_up', 99999)
+                limit_down = getattr(limit_price_obj, 'limit_down', 0)
             if run_info.matching_type == 1:
                 hq_price = bar_data.open
             else:
