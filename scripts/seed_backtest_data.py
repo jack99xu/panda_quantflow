@@ -113,7 +113,7 @@ def download_index_kline(code, name):
             "date,code,open,high,low,close,preclose,volume,amount",
             START_DATE, END_DATE,
             frequency="d",
-            adjustflag="1",
+            adjustflag="3",
         )
         docs = []
         while rs.next():
@@ -281,7 +281,7 @@ def main():
                         "date,code,open,high,low,close,preclose,volume,amount",
                         start, END_DATE,
                         frequency="d",
-                        adjustflag="1",
+                        adjustflag="3",
                     )
                     rows = []
                     while rs.next():
