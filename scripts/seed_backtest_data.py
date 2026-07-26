@@ -385,13 +385,20 @@ def main():
         if idx_000001:
             print(f"  ⚠ index_daily_price 也有 000001.SZ 20220208: close={idx_000001.get('close')}")
 
+        # 分红数据
+        div_filled = 0
+        try:
+            div_filled = seed_dividends(db)
+        except Exception as e:
+            print(f"   分红下载异常: {e}")
+
         # 统计
         final_stock = db.stock_market.count_documents({})
         final_idx = db.index_daily_price.count_documents({})
         elapsed = time.time() - t0
         print(f"\n{'=' * 60}")
         print(f"✅ 补齐完成！耗时 {elapsed:.0f}s")
-        print(f"   新增行情 {stock_filled} 条 / 指数 {idx_filled} 条")
+        print(f"   新增行情 {stock_filled} 条 / 指数 {idx_filled} 条 / 分红 {div_filled} 条")
         print(f"   总量 — 股票 {final_stock} 条 / 指数 {final_idx} 条")
         print(f"{'=' * 60}")
 
@@ -401,6 +408,90 @@ def main():
     finally:
         bs.logout()
         client.close()
+
+
+def seed_dividends(db):
+    """从 baostock 下载分红数据并写入 stock_dividends 集合"""
+    print(f"\n  --- 分红数据 ---")
+    collection = db.stock_dividends
+    t0 = time.time()
+    filled = 0
+    years = range(2020, 2027)
+
+    # 从 stock_market 获取已有 symbol 列表作为种子范围
+    known_symbols = set()
+    for doc in db.stock_market.find({}, {"symbol": 1, "_id": 0}).limit(5000):
+        known_symbols.add(doc["symbol"])
+    if not known_symbols:
+        print(f"    stock_market 无数据，跳过分红")
+        return 0
+
+    for symbol in sorted(known_symbols):
+        # 转换 symbol → baostock code（"000001.SZ" → "sz.000001"）
+        parts = symbol.rsplit(".", 1)
+        if len(parts) != 2:
+            continue
+        code_part, exch = parts
+        exch_map_rev = {"SH": "sh", "SZ": "sz"}
+        bs_prefix = exch_map_rev.get(exch)
+        if bs_prefix is None:
+            continue
+        bs_code = f"{bs_prefix}.{code_part}"
+
+        for year in years:
+            try:
+                rs = bs.query_dividend_data(code=bs_code, year=str(year), yearType="operate")
+                if rs.error_code != "0":
+                    continue
+                while rs.next():
+                    row = rs.get_row_data()
+                    if row is None or len(row) < 1:
+                        continue
+                    # row fields: code, dividPreNoticeDate, dividAgmPumDate, dividPlanAnnounceDate,
+                    #   dividPlanDate, dividRegistDate, dividOperateDate, dividPayDate,
+                    #   dividStockMarketDate, dividCashPsBeforeTax, dividCashPsAfterTax,
+                    #   dividStocksPs, dividCashStock, dividReserveToStockPs
+                    op_date = row[6] if len(row) > 6 else ""
+                    cash_after_tax = row[10] if len(row) > 10 else ""
+                    stocks_ps = row[11] if len(row) > 11 else ""
+                    reserve_ps = row[13] if len(row) > 13 else ""
+
+                    if not op_date or op_date == "":
+                        continue
+
+                    # 除权除息日 YYYY-MM-DD → int YYYYMMDD
+                    try:
+                        ex_div_int = int(op_date.replace("-", ""))
+                    except (ValueError, AttributeError):
+                        continue
+
+                    def _f(v):
+                        try:
+                            return float(v)
+                        except (ValueError, TypeError):
+                            return 0.0
+
+                    doc = {
+                        "symbol": symbol,
+                        "ex_div_date": ex_div_int,
+                        "unit_cash_div_tax": _f(cash_after_tax),
+                        "share_trans_ratio": _f(reserve_ps),
+                        "share_ratio": _f(stocks_ps),
+                    }
+                    # upsert 避免重复
+                    collection.update_one(
+                        {"symbol": symbol, "ex_div_date": ex_div_int},
+                        {"$set": doc},
+                        upsert=True,
+                    )
+                    filled += 1
+            except Exception as e:
+                print(f"    分红异常 {bs_code} {year}: {e}")
+                continue
+
+    elapsed = time.time() - t0
+    print(f"    √ {filled} 条分红记录 | 耗时 {elapsed:.1f}s")
+    return filled
 
 
 if __name__ == "__main__":
