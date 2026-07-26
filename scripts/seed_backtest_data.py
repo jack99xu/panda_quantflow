@@ -3,6 +3,7 @@
 使用 baostock 全量补齐 A 股日线数据，支持多线程并行下载
 """
 
+import argparse
 import baostock as bs
 import pymongo
 import os
@@ -19,7 +20,7 @@ MONGO_DB = os.getenv("MONGO_DB", "panda")
 # 测试模式：限制下载股票数（0=不限，用于快速验证 pipeline 全流程）
 # 每批最多下载多少只股票（防 pipeline 2h 超时，每次部署增量下载）
 # 500 只 ≈ 9 分钟（0.9 只/秒），留下足够时间给索引/日历/备份
-DOWNLOAD_BATCH = 0
+DOWNLOAD_BATCH = int(os.getenv("DOWNLOAD_BATCH", "0"))
 
 # 强制重下载列表（环境变量 FORCE_SYMBOLS="000001.SZ,600000.SH"）
 # 这些标的即使已有数据也会重新下载（用于修复数据不完整的问题）
@@ -129,9 +130,18 @@ def download_index_kline(code, name):
 
 
 def main():
+    parser = argparse.ArgumentParser(description="补齐回测行情数据")
+    parser.add_argument("--force-all", action="store_true",
+                        help="强制重新下载所有股票行情为后复权 + 重新下载分红")
+    args = parser.parse_args()
+    # 也支持环境变量 FORCE_ALL（用于 pipeline 中设置）
+    force_all = args.force_all or os.getenv("FORCE_ALL", "").lower() in ("1", "true", "yes")
+
     print("=" * 60)
     print(f"回测行情数据预加载（{START_DATE} ~ {END_DATE}）")
     print("=" * 60)
+    if force_all:
+        print("⚠⚠⚠ 模式: 强制重新下载所有股票（后复权）⚠⚠⚠")
 
     # 0. 等 MongoDB
     print("\n[0/5] 等待 MongoDB...")
@@ -221,6 +231,15 @@ def main():
         db.stock_market.create_index([("symbol", 1), ("date", -1)])
         db.index_daily_price.create_index("symbol")
 
+        # --force-all：清空 stock_market 强制全部重新下载为后复权
+        if force_all:
+            before = db.stock_market.count_documents({})
+            db.stock_market.delete_many({})
+            print(f"   ⚠ --force-all: 已清空 stock_market（{before} 条），将从 baostock 重新下载全部股票后复权数据")
+            nonlocal_batch = 99999  # 不限量
+        else:
+            nonlocal_batch = DOWNLOAD_BATCH
+
         # 强制重下载的标的提前处理（不受 DOWNLOAD_BATCH 限制）
         force_list = []
         if FORCE_SYMBOLS:
@@ -261,11 +280,11 @@ def main():
         to_download = force_list + to_download
         total_raw = len(to_download)
         force_count = len(force_list)
-        if total_raw - force_count > DOWNLOAD_BATCH:
-            remaining = (total_raw - force_count) - DOWNLOAD_BATCH
-            batch_end = DOWNLOAD_BATCH + force_count  # 保留 force 标的 + BATCH 个普通标的
+        if total_raw - force_count > nonlocal_batch:
+            remaining = (total_raw - force_count) - nonlocal_batch
+            batch_end = nonlocal_batch + force_count  # 保留 force 标的 + BATCH 个普通标的
             to_download = to_download[:batch_end]
-            print(f"   ⚠ 分批模式: 本次下载 {len(force_list)} 强制 + {DOWNLOAD_BATCH} 增量（剩余 {remaining} 只下次补）")
+            print(f"   ⚠ 分批模式: 本次下载 {len(force_list)} 强制 + {nonlocal_batch} 增量（剩余 {remaining} 只下次补）")
         total = len(to_download)
         print(f"   需下载: {total} 只（构建耗时 {time.time() - build_t0:.0f}s）")
         if total == 0:
