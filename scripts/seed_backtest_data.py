@@ -252,10 +252,16 @@ def main():
                         adjustflag="2",
                     )
                     rows = []
+                    # 调试: 前 3 只打印查询结果
+                    debug_rs = idx <= 3
+                    if debug_rs:
+                        print(f"   DEBUG[{symbol}] bs_code={bs_code} error={rs.error_code} {rs.error_msg}")
                     while rs.next():
                         row = rs.get_row_data()
                         if row[0] is not None:
                             rows.append(row)
+                    if debug_rs and rows:
+                        print(f"   DEBUG[{symbol}] rows={len(rows)} 首行={rows[0] if rows else '空'}")
 
                     if rows:
                         docs = [build_doc(r, symbol, code) for r in rows]
@@ -271,7 +277,8 @@ def main():
                                 stock_filled += len(new_docs)
 
                 except Exception as e:
-                    pass  # 部分股票无数据或失败，跳过
+                    print(f"   × {symbol} 异常: {e}")
+                    traceback.print_exc()
 
                 # 每 50 只或 25 秒打一次进度，防止 pipeline 超时 kill
                 now = time.time()
