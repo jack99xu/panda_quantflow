@@ -17,7 +17,7 @@ MONGO_AUTH = os.getenv("MONGO_AUTH_DB", "admin")
 MONGO_DB = os.getenv("MONGO_DB", "panda")
 
 # 测试模式：限制下载股票数（0=不限，用于快速验证 pipeline 全流程）
-TEST_LIMIT = 100
+TEST_LIMIT = 0
 
 START_DATE = "2020-01-01"
 END_DATE = "2026-07-22"
