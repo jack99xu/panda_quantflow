@@ -491,6 +491,11 @@ def seed_dividends(db):
 
     elapsed = time.time() - t0
     print(f"    √ {filled} 条分红记录 | 耗时 {elapsed:.1f}s")
+
+    # 打印一条示例用于验证格式
+    example = collection.find_one({"symbol": "600000.SH", "ex_div_date": {"$regex": "^2022"}}, sort=[("ex_div_date", -1)])
+    if example:
+        print(f"    📄 600000.SH 示例: {example}")
     return filled
 
 
