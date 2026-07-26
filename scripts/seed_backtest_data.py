@@ -299,6 +299,12 @@ def main():
                                 db.stock_market.delete_many({"symbol": symbol})
                                 db.stock_market.insert_many(docs, ordered=False)
                                 stock_filled += len(docs)
+                                # 验证：读回刚写入的数据
+                                verify = db.stock_market.find_one({"symbol": symbol, "date": 20220208})
+                                if verify:
+                                    print(f"     验证 {symbol} 20220208: close={verify.get('close')}, open={verify.get('open')}, 来源baostock_code={bs_code}")
+                                else:
+                                    print(f"     验证 {symbol} 20220208: 未找到!")
                             else:
                                 existing = set()
                                 for d in db.stock_market.find({"symbol": symbol}, {"date": 1, "_id": 0}):
@@ -347,6 +353,15 @@ def main():
         # 7. 交易日历
         print(f"\n  更新交易日历...")
         update_trade_calendar(db)
+
+        # 验证：查 stock_info_new 中 000001.SZ 的类型
+        info_000001 = db.stock_info_new.find_one({"symbol": "000001.SZ"})
+        if info_000001:
+            print(f"\n  stock_info_new 000001.SZ: type={info_000001.get('type')}, name={info_000001.get('name')}")
+        # 验证：index_daily_price 中是否也有 000001.SZ
+        idx_000001 = db.index_daily_price.find_one({"symbol": "000001.SZ", "date": 20220208})
+        if idx_000001:
+            print(f"  ⚠ index_daily_price 也有 000001.SZ 20220208: close={idx_000001.get('close')}")
 
         # 统计
         final_stock = db.stock_market.count_documents({})
