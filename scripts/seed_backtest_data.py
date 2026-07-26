@@ -354,27 +354,26 @@ def main():
         print(f"\n  更新交易日历...")
         update_trade_calendar(db)
 
-        # === 三种复权对比 ===
-        print(f"\n  --- 三种复权对比 ---")
+        # === 后复权对比（用于校验数据源一致性） ===
+        print(f"\n  --- 后复权对比 ---")
         symbols_to_check = [("000001.SZ", "sz.000001"), ("600000.SH", "sh.600000")]
         for sym, bs_code in symbols_to_check:
-            for adj, label in [("1", "不复权"), ("2", "前复权"), ("3", "后复权")]:
-                rs = bs.query_history_k_data_plus(
-                    bs_code,
-                    "date,code,open,high,low,close,preclose,volume,amount",
-                    "2022-02-07", "2022-02-11",
-                    frequency="d", adjustflag=adj,
-                )
-                rows = []
-                while rs.next():
-                    row = rs.get_row_data()
-                    if row[0] is not None:
-                        rows.append(row)
-                if rows:
-                    for r in rows:
-                        print(f"  {sym} {label}: date={r[0]} close={r[5]} open={r[2]} high={r[3]} low={r[4]}")
-                else:
-                    print(f"  {sym} {label}: 无数据")
+            rs = bs.query_history_k_data_plus(
+                bs_code,
+                "date,code,open,high,low,close,preclose,volume,amount",
+                "2022-02-07", "2022-02-11",
+                frequency="d", adjustflag="3",
+            )
+            rows = []
+            while rs.next():
+                row = rs.get_row_data()
+                if row[0] is not None:
+                    rows.append(row)
+            if rows:
+                for r in rows:
+                    print(f"  {sym} 后复权: date={r[0]} close={r[5]} open={r[2]} high={r[3]} low={r[4]}")
+            else:
+                print(f"  {sym}: 无数据")
 
         # 验证：查 stock_info_new 中 000001.SZ 的类型
         info_000001 = db.stock_info_new.find_one({"symbol": "000001.SZ"})
