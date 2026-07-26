@@ -215,7 +215,11 @@ def main():
             latest = db.stock_market.find_one({"symbol": symbol}, sort=[("date", -1)])
             if latest and latest["date"] >= END_DATE_C:
                 continue
-            start = START_DATE if not latest else latest["date"]
+            if latest:
+                d = str(latest["date"])
+                start = f"{d[:4]}-{d[4:6]}-{d[6:8]}"
+            else:
+                start = START_DATE
             to_download.append((symbol, code_name or raw_code, raw_code, start))
             if i % 500 == 0:
                 now = time.time()
