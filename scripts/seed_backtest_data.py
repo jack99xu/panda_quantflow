@@ -299,8 +299,8 @@ def main():
                                 db.stock_market.delete_many({"symbol": symbol})
                                 db.stock_market.insert_many(docs, ordered=False)
                                 stock_filled += len(docs)
-                                # 验证：读回刚写入的数据
-                                verify = db.stock_market.find_one({"symbol": symbol, "date": 20220208})
+                                # 验证：读回刚写入的数据（date 存为字符串）
+                                verify = db.stock_market.find_one({"symbol": symbol, "date": "20220208"})
                                 if verify:
                                     print(f"     验证 {symbol} 20220208: close={verify.get('close')}, open={verify.get('open')}, 来源baostock_code={bs_code}")
                                 else:
@@ -381,7 +381,7 @@ def main():
         if info_000001:
             print(f"\n  stock_info_new 000001.SZ: type={info_000001.get('type')}, name={info_000001.get('name')}")
         # 验证：index_daily_price 中是否也有 000001.SZ
-        idx_000001 = db.index_daily_price.find_one({"symbol": "000001.SZ", "date": 20220208})
+        idx_000001 = db.index_daily_price.find_one({"symbol": "000001.SZ", "date": "20220208"})
         if idx_000001:
             print(f"  ⚠ index_daily_price 也有 000001.SZ 20220208: close={idx_000001.get('close')}")
 
