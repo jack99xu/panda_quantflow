@@ -418,10 +418,8 @@ def seed_dividends(db):
     filled = 0
     years = range(2020, 2027)
 
-    # 从 stock_market 获取已有 symbol 列表作为种子范围
-    known_symbols = set()
-    for doc in db.stock_market.find({}, {"symbol": 1, "_id": 0}).limit(5000):
-        known_symbols.add(doc["symbol"])
+    # 从 stock_market 获取已存在的全部去重 symbol
+    known_symbols = set(db.stock_market.distinct("symbol"))
     if not known_symbols:
         print(f"    stock_market 无数据，跳过分红")
         return 0
