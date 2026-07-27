@@ -82,8 +82,7 @@ $:
             pip install -q baostock
             cd /workspace
             export FORCE_SYMBOLS="000001.SZ,600000.SH"
-            # TODO: 跑完这次后删除 --force-all，恢复增量模式
-            python -u scripts/seed_backtest_data.py --force-all
+            python -u scripts/seed_backtest_data.py
         # 第6步：备份 MongoDB 数据到 git（独立分支 data-backup）
         - name: backup-mongodb-to-git
           script: |
